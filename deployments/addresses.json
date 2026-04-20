@@ -7,7 +7,20 @@
   "base": {
     "network": "base",
     "chainId": 8453,
-    "contracts": {}
+    "deployer": "0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81",
+    "timestamp": "2026-04-20T00:30:00.000Z",
+    "contracts": {
+      "DurationDonation": "0x712461A7dFc0bf480023bbCB492F97F7c9d40A54",
+      "PortfolioFunds": "0x8BCe12AE2E7c935a16f331B85f91ad4589c35640",
+      "CharityScheduledDistribution": "0x046c6379108eb86275d6b9d4070D4E2c7d3e451B",
+      "VolunteerVerification": "0xad924E647BD52Deb3D740B1BFA5CDe7228186179",
+      "DistributionExecutor": "0x2f0E14700A32E96f24b1BAF4E8619Ee725Ae07f5",
+      "FiatDonationAttestation": "0xffd0430Acaf6478f47d8aD8C0B9467584EE04071"
+    },
+    "timelocks": {
+      "fundHolding72h": "0xB08DC3A8D3d0a003a8cafC0a8b01ec7D024FDb74",
+      "recordKeeping24h": "0xAFfCA04156cCB0e9c04C43806AC7eb8A3bF05aD2"
+    }
   },
   "optimismSepolia": {
     "network": "optimismSepolia",
