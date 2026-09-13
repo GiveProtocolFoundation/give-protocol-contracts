@@ -1,0 +1,40 @@
+{
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "deployer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+  "treasury": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+  "multiSig": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+  "timestamp": "2026-09-13T20:53:20.387Z",
+  "contracts": {
+    "MockERC20": {
+      "address": "0xd399a9376eB2c62Dc3dC34610b097612e4A002B8"
+    },
+    "DurationDonation": {
+      "proxy": "0x1921484aE8954A693a08D649E192380B981BFeB0",
+      "implementation": "0x2C1c604469D2fFA484D368386d2cc0dc652dEc9a"
+    },
+    "PortfolioFunds": {
+      "proxy": "0x673c1D05c5471270895eC4fCd476C3343c2646c0",
+      "implementation": "0x36Ac2cF8c6B0BCe355B503c9C4096b99C504569f"
+    },
+    "CharityScheduledDistribution": {
+      "proxy": "0x0ef6bf3ea6c7253EC0FA0B5604b2BB0729EE6Ba4",
+      "implementation": "0x7402af7cCCB4100FCDD3ac3fD8c8f5f9102c2eEF"
+    },
+    "VolunteerVerification": {
+      "proxy": "0x5EF4C9c64749E34D161848AB94Af4F8fa0E084be",
+      "implementation": "0x2f7267720e3f5E363EF3194Ab95Add215EaD6dDe"
+    },
+    "DistributionExecutor": {
+      "address": "0x53fF33B51D8882FDf57B4F67fC42a8fD4eDcd54B"
+    },
+    "FiatDonationAttestation": {
+      "proxy": "0x2b9e4a2e614AABC03c12c92b16dAf8D2fDe730Ca",
+      "implementation": "0x086915346f3351b6E88cD8b9905DBe91Ed6C1008"
+    }
+  },
+  "timelocks": {
+    "fundHolding72h": "0xD04Ca2290703983759e8F458B6D2CD1cE321C1fc",
+    "recordKeeping24h": "0x3964A54Dd021F529a3F2bbf85289b631261B9528"
+  }
+}

@@ -75,23 +75,14 @@ const config = {
     noColors: true
   },
   etherscan: {
-    apiKey: {
-      // Base
-      baseSepolia: process.env.BASESCAN_API_KEY || "",
-      base: process.env.BASESCAN_API_KEY || "",
-      // Optimism
-      optimismSepolia: process.env.OPTIMISM_ETHERSCAN_API_KEY || "",
-      optimism: process.env.OPTIMISM_ETHERSCAN_API_KEY || "",
-      // Moonbeam
-      moonbaseAlpha: process.env.MOONSCAN_API_KEY || "",
-      moonbeam: process.env.MOONSCAN_API_KEY || ""
-    },
+    // Etherscan V2 unified API: one key works across all EVM chains (via chainid param)
+    apiKey: process.env.ETHERSCAN_API_KEY || process.env.BASESCAN_API_KEY || "",
     customChains: [
       {
         network: "baseSepolia",
         chainId: 84532,
         urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=84532",
           browserURL: "https://sepolia.basescan.org"
         }
       },
@@ -99,7 +90,7 @@ const config = {
         network: "base",
         chainId: 8453,
         urls: {
-          apiURL: "https://api.basescan.org/api",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=8453",
           browserURL: "https://basescan.org"
         }
       },

@@ -56,12 +56,19 @@ const CHAIN_CONFIG = {
 const FUND_HOLDING_DELAY = 72 * 60 * 60; // 72 hours
 const RECORD_KEEPING_DELAY = 24 * 60 * 60; // 24 hours
 
-/**
- * Verifies a contract on the block explorer
- * @param {string} address - Contract address
- * @param {Array} constructorArguments - Constructor arguments
- * @returns {Promise<void>}
- */
+// Retry helper: public RPCs sometimes return stale storage reads right after a deploy
+async function getImplWithRetry(proxyAddress, attempts = 5, delayMs = 4000) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
+    } catch (err) {
+      if (i === attempts - 1) throw err;
+      console.log(`     [RETRY ${i + 1}/${attempts}] RPC read failed (${err.message.slice(0, 80)}), retrying in ${delayMs / 1000}s...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
 async function verifyContract(address, constructorArguments = []) {
   try {
     await hre.run("verify:verify", {
@@ -177,7 +184,7 @@ async function main() {
   );
   await donation.waitForDeployment();
   const donationProxy = await donation.getAddress();
-  const donationImpl = await hre.upgrades.erc1967.getImplementationAddress(donationProxy);
+  const donationImpl = await getImplWithRetry(donationProxy);
   contracts.DurationDonation = { proxy: donationProxy, implementation: donationImpl };
   console.log(`[OK] DurationDonation proxy: ${donationProxy}`);
   console.log(`     Implementation: ${donationImpl}`);
@@ -192,7 +199,7 @@ async function main() {
   );
   await portfolio.waitForDeployment();
   const portfolioProxy = await portfolio.getAddress();
-  const portfolioImpl = await hre.upgrades.erc1967.getImplementationAddress(portfolioProxy);
+  const portfolioImpl = await getImplWithRetry(portfolioProxy);
   contracts.PortfolioFunds = { proxy: portfolioProxy, implementation: portfolioImpl };
   console.log(`[OK] PortfolioFunds proxy: ${portfolioProxy}`);
   console.log(`     Implementation: ${portfolioImpl}`);
@@ -221,7 +228,7 @@ async function main() {
   );
   await distribution.waitForDeployment();
   const distributionProxy = await distribution.getAddress();
-  const distributionImpl = await hre.upgrades.erc1967.getImplementationAddress(distributionProxy);
+  const distributionImpl = await getImplWithRetry(distributionProxy);
   contracts.CharityScheduledDistribution = { proxy: distributionProxy, implementation: distributionImpl };
   console.log(`[OK] CharityScheduledDistribution proxy: ${distributionProxy}`);
   console.log(`     Implementation: ${distributionImpl}`);
@@ -236,7 +243,7 @@ async function main() {
   );
   await verification.waitForDeployment();
   const verificationProxy = await verification.getAddress();
-  const verificationImpl = await hre.upgrades.erc1967.getImplementationAddress(verificationProxy);
+  const verificationImpl = await getImplWithRetry(verificationProxy);
   contracts.VolunteerVerification = { proxy: verificationProxy, implementation: verificationImpl };
   console.log(`[OK] VolunteerVerification proxy: ${verificationProxy}`);
   console.log(`     Implementation: ${verificationImpl}`);
@@ -260,7 +267,7 @@ async function main() {
   );
   await fiatAttestation.waitForDeployment();
   const fiatAttestationProxy = await fiatAttestation.getAddress();
-  const fiatAttestationImpl = await hre.upgrades.erc1967.getImplementationAddress(fiatAttestationProxy);
+  const fiatAttestationImpl = await getImplWithRetry(fiatAttestationProxy);
   contracts.FiatDonationAttestation = { proxy: fiatAttestationProxy, implementation: fiatAttestationImpl };
   console.log(`[OK] FiatDonationAttestation proxy: ${fiatAttestationProxy}`);
   console.log(`     Implementation: ${fiatAttestationImpl}`);

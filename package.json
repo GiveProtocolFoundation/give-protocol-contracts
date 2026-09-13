@@ -22,7 +22,10 @@
     "slither:json": "slither . --hardhat-artifacts-directory artifacts --compile-force-framework hardhat --json slither-results.json",
     "fuzz:arm": "~/.local/bin/fuzz arm",
     "fuzz:run": "~/.local/bin/fuzz run",
-    "fuzz:disarm": "~/.local/bin/fuzz disarm"
+    "fuzz:disarm": "~/.local/bin/fuzz disarm",
+    "verify:base-sepolia": "hardhat run scripts/verify-universal.cjs --network baseSepolia",
+    "verify:base": "hardhat run scripts/verify-universal.cjs --network base",
+    "verify:optimism-sepolia": "hardhat run scripts/verify-universal.cjs --network optimismSepolia"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.9",
