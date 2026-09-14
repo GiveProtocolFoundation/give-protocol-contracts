@@ -64,7 +64,7 @@ const RECORD_KEEPING_DELAY = 24 * 60 * 60; // 24 hours
  * @returns {Promise<string>} The EIP-1967 implementation address.
  */
 async function getImplWithRetry(proxyAddress, attempts = 5, delayMs = 4000) {
-  let lastError;
+  let lastError = null;
   for (let i = 0; i < attempts; i++) {
     try {
       return await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
