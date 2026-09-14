@@ -24,6 +24,10 @@ function flatConstructorArgs(deployment) {
   };
 }
 
+/**
+ * Load the deployment file for the current network and verify every contract in it.
+ * @returns {Promise<void>}
+ */
 async function main() {
   const networkName = hre.network.name;
   const deployFile = path.join(DEPLOYMENTS_DIR, `${networkName}.json`);
@@ -77,6 +81,10 @@ async function main() {
 }
 
 let lastCall = 0;
+/**
+ * Throttle explorer calls to stay within the free-tier rate limit.
+ * @returns {Promise<void>}
+ */
 async function pace() {
   const gap = 2500; // stay under Etherscan's 3 calls/sec free-tier limit
   const wait = lastCall + gap - Date.now();
@@ -84,6 +92,14 @@ async function pace() {
   lastCall = Date.now();
 }
 
+/**
+ * Verify one contract, recording the outcome in `results`.
+ * @param {string} name - Human-readable label for logs/summary.
+ * @param {string} address - Contract address to verify.
+ * @param {Array} constructorArgs - Constructor arguments (empty for proxies/implementations).
+ * @param {{verified: string[], skipped: string[], failed: {name: string, reason: string}[]}} results - Collector for outcomes.
+ * @returns {Promise<void>}
+ */
 async function verify(name, address, constructorArgs, results) {
   process.stdout.write(`Verifying ${name} at ${address}... `);
   await pace();
@@ -101,7 +117,7 @@ async function verify(name, address, constructorArgs, results) {
       results.verified.push(name);
     } else if (msg.includes("Missing or invalid Api Key") || msg.includes("no API token")) {
       console.log("[SKIPPED — no API key]");
-      console.log(`  Set ETHERSCAN_API_KEY in .env (one key covers all chains via Etherscan V2)`);
+      console.log("  Set ETHERSCAN_API_KEY in .env (one key covers all chains via Etherscan V2)");
       results.skipped.push(name);
     } else {
       console.log("[FAILED]");
@@ -111,9 +127,8 @@ async function verify(name, address, constructorArgs, results) {
   }
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+main().catch((err) => {
+  console.error(err);
+  // Set exitCode instead of process.exit() so pending I/O can flush.
+  process.exitCode = 1;
+});

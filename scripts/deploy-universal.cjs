@@ -56,19 +56,35 @@ const CHAIN_CONFIG = {
 const FUND_HOLDING_DELAY = 72 * 60 * 60; // 72 hours
 const RECORD_KEEPING_DELAY = 24 * 60 * 60; // 24 hours
 
-// Retry helper: public RPCs sometimes return stale storage reads right after a deploy
+/**
+ * Retry helper: public RPCs sometimes return stale storage reads right after a deploy.
+ * @param {string} proxyAddress - Address of the deployed proxy.
+ * @param {number} [attempts=5] - Maximum number of read attempts.
+ * @param {number} [delayMs=4000] - Delay between attempts in milliseconds.
+ * @returns {Promise<string>} The EIP-1967 implementation address.
+ */
 async function getImplWithRetry(proxyAddress, attempts = 5, delayMs = 4000) {
+  let lastError = null;
   for (let i = 0; i < attempts; i++) {
     try {
       return await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
     } catch (err) {
-      if (i === attempts - 1) throw err;
-      console.log(`     [RETRY ${i + 1}/${attempts}] RPC read failed (${err.message.slice(0, 80)}), retrying in ${delayMs / 1000}s...`);
-      await new Promise((r) => setTimeout(r, delayMs));
+      lastError = err;
+      if (i < attempts - 1) {
+        console.log(`     [RETRY ${i + 1}/${attempts}] RPC read failed (${err.message.slice(0, 80)}), retrying in ${delayMs / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
   }
+  throw lastError;
 }
 
+/**
+ * Verify a deployed contract on the block explorer, tolerating "already verified".
+ * @param {string} address - Deployed contract address to verify.
+ * @param {Array} [constructorArguments=[]] - Constructor arguments used at deploy time.
+ * @returns {Promise<void>}
+ */
 async function verifyContract(address, constructorArguments = []) {
   try {
     await hre.run("verify:verify", {
