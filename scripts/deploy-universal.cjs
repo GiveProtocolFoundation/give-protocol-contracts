@@ -50,6 +50,34 @@ const CHAIN_CONFIG = {
     nativeSymbol: "GLMR",
     isTestnet: false,
   },
+  ethereum: {
+    name: "Ethereum",
+    treasuryEnvKey: "ETHEREUM_TREASURY_ADDRESS",
+    explorerName: "Etherscan",
+    nativeSymbol: "ETH",
+    isTestnet: false,
+  },
+  arbitrum: {
+    name: "Arbitrum One",
+    treasuryEnvKey: "ARBITRUM_TREASURY_ADDRESS",
+    explorerName: "Arbiscan",
+    nativeSymbol: "ETH",
+    isTestnet: false,
+  },
+  polygon: {
+    name: "Polygon PoS",
+    treasuryEnvKey: "POLYGON_TREASURY_ADDRESS",
+    explorerName: "Polygonscan",
+    nativeSymbol: "POL",
+    isTestnet: false,
+  },
+  avalanche: {
+    name: "Avalanche C-Chain",
+    treasuryEnvKey: "AVALANCHE_TREASURY_ADDRESS",
+    explorerName: "Snowtrace",
+    nativeSymbol: "AVAX",
+    isTestnet: false,
+  },
 };
 
 // Timelock delays
@@ -366,7 +394,10 @@ async function main() {
   console.log(`VITE_${envPrefix}_FIAT_ATTESTATION_ADDRESS=${contracts.FiatDonationAttestation.proxy}`);
 
   // Verify contracts if API key available
+  // ETHERSCAN_API_KEY is the Etherscan V2 unified key that covers
+  // Ethereum, Arbitrum, Polygon, and Avalanche via the chainid param.
   const hasApiKey =
+    process.env.ETHERSCAN_API_KEY ||
     process.env.BASESCAN_API_KEY ||
     process.env.OPTIMISM_ETHERSCAN_API_KEY ||
     process.env.MOONSCAN_API_KEY;
