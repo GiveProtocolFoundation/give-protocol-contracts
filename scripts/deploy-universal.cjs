@@ -108,6 +108,62 @@ async function getImplWithRetry(proxyAddress, attempts = 5, delayMs = 4000) {
 }
 
 /**
+ * Send a role-management transaction with an explicit pending nonce,
+ * EIP-1559 pricing, and idempotent state checks.
+ *
+ * Public RPCs sometimes drop the HTTP response after already accepting a
+ * transaction; the automatic resend then double-broadcasts the same nonce and
+ * the node rejects it ("replacement transaction underpriced"), which aborted
+ * both the Polygon and Avalanche deploys mid-run (GIV-774). An explicit nonce
+ * eliminates the race; `checkDone` skips re-sends when a prior attempt
+ * actually landed, making the whole role section safe to re-run.
+ * @param {Function} sendFn - Receives tx overrides; returns the sent tx.
+ * @param {Function} [checkDone] - Async predicate: true when the desired
+ *   role state is already on-chain.
+ * @returns {Promise<void>}
+ */
+async function sendRoleTx(sendFn, checkDone) {
+  const [deployer] = await hre.ethers.getSigners();
+  let priorityFee = 1000000000n;
+  let maxFee = 200000000000n;
+  try {
+    const fee = await hre.ethers.provider.getFeeData();
+    if (fee.maxPriorityFeePerGas && fee.maxPriorityFeePerGas > 0n) {
+      priorityFee = fee.maxPriorityFeePerGas;
+    }
+    const base = fee.maxFeePerGas && fee.maxFeePerGas > 0n ? fee.maxFeePerGas : fee.gasPrice || 100000000000n;
+    maxFee = base * 2n + priorityFee;
+  } catch (err) {
+    console.log(`     [WARN] fee data fetch failed (${err.message.slice(0, 60)}) — using defaults`);
+  }
+  // Polygon public nodes routinely demand priority fees above reported values.
+  if ((await hre.ethers.provider.getNetwork()).chainId === 137n && priorityFee < 30000000000n) {
+    priorityFee = 30000000000n;
+  }
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (checkDone && (await checkDone())) {
+      console.log("     [OK] desired role state already on-chain");
+      return;
+    }
+    const nonce = await hre.ethers.provider.getTransactionCount(deployer.address, "pending");
+    try {
+      const tx = await sendFn({ nonce, maxPriorityFeePerGas: priorityFee, maxFeePerGas: maxFee });
+      await tx.wait();
+      return;
+    } catch (err) {
+      const msg = err.message || "";
+      if ((msg.includes("underpriced") || msg.includes("nonce too low")) && attempt < 4) {
+        console.log(`     [RETRY ${attempt}/4] tx rejected (${msg.slice(0, 60)}) — re-checking state, bumping fees...`);
+        await new Promise((r) => setTimeout(r, 5000));
+        priorityFee = (priorityFee * 125n) / 100n;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Verify a deployed contract on the block explorer, tolerating "already verified".
  * @param {string} address - Deployed contract address to verify.
  * @param {Array} [constructorArguments=[]] - Constructor arguments used at deploy time.
@@ -254,12 +310,30 @@ async function main() {
   const GOVERNANCE_ROLE = await portfolio.GOVERNANCE_ROLE();
 
   console.log("     Transferring admin roles to timelock...");
-  await portfolio.grantRole(DEFAULT_ADMIN_ROLE, timelocks.fundHolding72h);
-  await portfolio.grantRole(ADMIN_ROLE, timelocks.fundHolding72h);
-  await portfolio.grantRole(GOVERNANCE_ROLE, timelocks.fundHolding72h);
-  await portfolio.revokeRole(GOVERNANCE_ROLE, deployer.address);
-  await portfolio.revokeRole(ADMIN_ROLE, deployer.address);
-  await portfolio.revokeRole(DEFAULT_ADMIN_ROLE, deployer.address);
+  await sendRoleTx(
+    (o) => portfolio.grantRole(DEFAULT_ADMIN_ROLE, timelocks.fundHolding72h, o),
+    () => portfolio.hasRole(DEFAULT_ADMIN_ROLE, timelocks.fundHolding72h),
+  );
+  await sendRoleTx(
+    (o) => portfolio.grantRole(ADMIN_ROLE, timelocks.fundHolding72h, o),
+    () => portfolio.hasRole(ADMIN_ROLE, timelocks.fundHolding72h),
+  );
+  await sendRoleTx(
+    (o) => portfolio.grantRole(GOVERNANCE_ROLE, timelocks.fundHolding72h, o),
+    () => portfolio.hasRole(GOVERNANCE_ROLE, timelocks.fundHolding72h),
+  );
+  await sendRoleTx(
+    (o) => portfolio.revokeRole(GOVERNANCE_ROLE, deployer.address, o),
+    () => !portfolio.hasRole(GOVERNANCE_ROLE, deployer.address),
+  );
+  await sendRoleTx(
+    (o) => portfolio.revokeRole(ADMIN_ROLE, deployer.address, o),
+    () => !portfolio.hasRole(ADMIN_ROLE, deployer.address),
+  );
+  await sendRoleTx(
+    (o) => portfolio.revokeRole(DEFAULT_ADMIN_ROLE, deployer.address, o),
+    () => !portfolio.hasRole(DEFAULT_ADMIN_ROLE, deployer.address),
+  );
   console.log("     [OK] Roles transferred to timelock");
 
   // 6. Deploy CharityScheduledDistribution proxy (fund-holding → 72h timelock as owner)
@@ -316,21 +390,37 @@ async function main() {
   console.log(`[OK] FiatDonationAttestation proxy: ${fiatAttestationProxy}`);
   console.log(`     Implementation: ${fiatAttestationImpl}`);
 
-  // Grant roles then transfer admin to 24h timelock
-  const FDA_DEFAULT_ADMIN_ROLE = await fiatAttestation.DEFAULT_ADMIN_ROLE();
-  const FDA_ADMIN_ROLE = await fiatAttestation.ADMIN_ROLE();
-  const FDA_ATTESTER_ROLE = await fiatAttestation.ATTESTER_ROLE();
+  // Role constants computed locally: RPC static reads against a
+  // just-deployed proxy returned empty data on Polygon (GIV-774).
+  const FDA_DEFAULT_ADMIN_ROLE = hre.ethers.ZeroHash; // OZ: bytes32(0)
+  const FDA_ADMIN_ROLE = hre.ethers.id("ADMIN_ROLE");
+  const FDA_ATTESTER_ROLE = hre.ethers.id("ATTESTER_ROLE");
 
   // Grant ATTESTER_ROLE to bridge wallet (defaults to deployer for testnets)
   const attesterAddress = process.env.ATTESTER_ADDRESS || deployer.address;
   console.log(`     Attester (bridge wallet): ${attesterAddress}`);
-  await fiatAttestation.grantRole(FDA_ATTESTER_ROLE, attesterAddress);
+  await sendRoleTx(
+    (o) => fiatAttestation.grantRole(FDA_ATTESTER_ROLE, attesterAddress, o),
+    () => fiatAttestation.hasRole(FDA_ATTESTER_ROLE, attesterAddress),
+  );
 
   console.log("     Transferring admin roles to timelock...");
-  await fiatAttestation.grantRole(FDA_DEFAULT_ADMIN_ROLE, timelocks.recordKeeping24h);
-  await fiatAttestation.grantRole(FDA_ADMIN_ROLE, timelocks.recordKeeping24h);
-  await fiatAttestation.revokeRole(FDA_ADMIN_ROLE, deployer.address);
-  await fiatAttestation.revokeRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address);
+  await sendRoleTx(
+    (o) => fiatAttestation.grantRole(FDA_DEFAULT_ADMIN_ROLE, timelocks.recordKeeping24h, o),
+    () => fiatAttestation.hasRole(FDA_DEFAULT_ADMIN_ROLE, timelocks.recordKeeping24h),
+  );
+  await sendRoleTx(
+    (o) => fiatAttestation.grantRole(FDA_ADMIN_ROLE, timelocks.recordKeeping24h, o),
+    () => fiatAttestation.hasRole(FDA_ADMIN_ROLE, timelocks.recordKeeping24h),
+  );
+  await sendRoleTx(
+    (o) => fiatAttestation.revokeRole(FDA_ADMIN_ROLE, deployer.address, o),
+    () => !fiatAttestation.hasRole(FDA_ADMIN_ROLE, deployer.address),
+  );
+  await sendRoleTx(
+    (o) => fiatAttestation.revokeRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address, o),
+    () => !fiatAttestation.hasRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address),
+  );
   console.log("     [OK] Roles transferred to timelock");
 
   // Save deployment info
