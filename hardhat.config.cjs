@@ -66,6 +66,34 @@ const config = {
         : "https://rpc.api.moonbeam.network",
       chainId: 1284,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
+    },
+
+    // ========== ETHEREUM ==========
+    ethereum: {
+      url: process.env.ETHEREUM_RPC_URL || "https://eth.drpc.org",
+      chainId: 1,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
+    },
+
+    // ========== ARBITRUM ==========
+    arbitrum: {
+      url: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+      chainId: 42161,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
+    },
+
+    // ========== POLYGON ==========
+    polygon: {
+      url: process.env.POLYGON_RPC_URL || "https://polygon-bor-rpc.publicnode.com",
+      chainId: 137,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
+    },
+
+    // ========== AVALANCHE ==========
+    avalanche: {
+      url: process.env.AVALANCHE_RPC_URL || "https://api.avax.network/ext/bc/C/rpc",
+      chainId: 43114,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
     }
   },
   gasReporter: {
@@ -124,6 +152,38 @@ const config = {
         urls: {
           apiURL: "https://api-moonbeam.moonscan.io/api",
           browserURL: "https://moonscan.io/"
+        }
+      },
+      {
+        network: "ethereum",
+        chainId: 1,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
+          browserURL: "https://etherscan.io"
+        }
+      },
+      {
+        network: "arbitrum",
+        chainId: 42161,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=42161",
+          browserURL: "https://arbiscan.io"
+        }
+      },
+      {
+        network: "polygon",
+        chainId: 137,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=137",
+          browserURL: "https://polygonscan.com"
+        }
+      },
+      {
+        network: "avalanche",
+        chainId: 43114,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=43114",
+          browserURL: "https://snowtrace.io"
         }
       }
     ]
