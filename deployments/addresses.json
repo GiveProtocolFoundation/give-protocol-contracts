@@ -85,5 +85,79 @@
     "network": "moonbeam",
     "chainId": 1284,
     "contracts": {}
+  },
+  "polygon": {
+    "network": "polygon",
+    "chainId": 137,
+    "deployer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "treasury": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "multiSig": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "timestamp": "2026-09-19T16:25:17.685Z",
+    "contracts": {
+      "DurationDonation": {
+        "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+        "implementation": "0xB7D1a245336e92912d554712901B49EafC112448"
+      },
+      "PortfolioFunds": {
+        "proxy": "0x6bA7f79f2Fe2100A90E06A9B1702D042139ec007",
+        "implementation": "0xEf13463dAb859C80b4a0DAd1BCB01eDFf034545b"
+      },
+      "CharityScheduledDistribution": {
+        "proxy": "0x0a34DD6eDd62C1Ae7516a6794c5f57464992F141",
+        "implementation": "0x27357f5Efe56Ff7d1DBF56051342925eb2063A71"
+      },
+      "VolunteerVerification": {
+        "proxy": "0xd399a9376eB2c62Dc3dC34610b097612e4A002B8",
+        "implementation": "0x84E422492fbd99e5F6f737Ee50B8d3738833A14a"
+      },
+      "DistributionExecutor": {
+        "address": "0xD04Ca2290703983759e8F458B6D2CD1cE321C1fc"
+      },
+      "FiatDonationAttestation": {
+        "proxy": "0x1921484aE8954A693a08D649E192380B981BFeB0",
+        "implementation": "0x3964A54Dd021F529a3F2bbf85289b631261B9528"
+      }
+    },
+    "timelocks": {
+      "fundHolding72h": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "recordKeeping24h": "0x8ADCE80e12273AC63Ae080785B9e6184e6D3207f"
+    }
+  },
+  "avalanche": {
+    "network": "avalanche",
+    "chainId": 43114,
+    "deployer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "treasury": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "multiSig": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+    "timestamp": "2026-09-19T16:28:38.133Z",
+    "contracts": {
+      "DurationDonation": {
+        "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+        "implementation": "0xB7D1a245336e92912d554712901B49EafC112448"
+      },
+      "PortfolioFunds": {
+        "proxy": "0x6bA7f79f2Fe2100A90E06A9B1702D042139ec007",
+        "implementation": "0xEf13463dAb859C80b4a0DAd1BCB01eDFf034545b"
+      },
+      "CharityScheduledDistribution": {
+        "proxy": "0x0a34DD6eDd62C1Ae7516a6794c5f57464992F141",
+        "implementation": "0x27357f5Efe56Ff7d1DBF56051342925eb2063A71"
+      },
+      "VolunteerVerification": {
+        "proxy": "0xd399a9376eB2c62Dc3dC34610b097612e4A002B8",
+        "implementation": "0x84E422492fbd99e5F6f737Ee50B8d3738833A14a"
+      },
+      "DistributionExecutor": {
+        "address": "0xD04Ca2290703983759e8F458B6D2CD1cE321C1fc"
+      },
+      "FiatDonationAttestation": {
+        "proxy": "0x1921484aE8954A693a08D649E192380B981BFeB0",
+        "implementation": "0x3964A54Dd021F529a3F2bbf85289b631261B9528"
+      }
+    },
+    "timelocks": {
+      "fundHolding72h": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "recordKeeping24h": "0x8ADCE80e12273AC63Ae080785B9e6184e6D3207f"
+    }
   }
 }
