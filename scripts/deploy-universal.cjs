@@ -125,14 +125,13 @@ async function getImplWithRetry(proxyAddress, attempts = 5, delayMs = 4000) {
 async function sendRoleTx(sendFn, checkDone) {
   const [deployer] = await hre.ethers.getSigners();
   let priorityFee = 1000000000n;
-  let maxFee = 200000000000n;
+  let base = 100000000000n;
   try {
     const fee = await hre.ethers.provider.getFeeData();
     if (fee.maxPriorityFeePerGas && fee.maxPriorityFeePerGas > 0n) {
       priorityFee = fee.maxPriorityFeePerGas;
     }
-    const base = fee.maxFeePerGas && fee.maxFeePerGas > 0n ? fee.maxFeePerGas : fee.gasPrice || 100000000000n;
-    maxFee = base * 2n + priorityFee;
+    base = fee.maxFeePerGas && fee.maxFeePerGas > 0n ? fee.maxFeePerGas : fee.gasPrice || 100000000000n;
   } catch (err) {
     console.log(`     [WARN] fee data fetch failed (${err.message.slice(0, 60)}) — using defaults`);
   }
@@ -140,6 +139,9 @@ async function sendRoleTx(sendFn, checkDone) {
   if ((await hre.ethers.provider.getNetwork()).chainId === 137n && priorityFee < 30000000000n) {
     priorityFee = 30000000000n;
   }
+  // Recomputed on every priorityFee change so maxFeePerGas always stays
+  // above maxPriorityFeePerGas (an EIP-1559 tx is invalid otherwise).
+  let maxFee = base * 2n + priorityFee;
   for (let attempt = 1; attempt <= 4; attempt++) {
     if (checkDone && (await checkDone())) {
       console.log("     [OK] desired role state already on-chain");
@@ -156,6 +158,7 @@ async function sendRoleTx(sendFn, checkDone) {
         console.log(`     [RETRY ${attempt}/4] tx rejected (${msg.slice(0, 60)}) — re-checking state, bumping fees...`);
         await new Promise((r) => setTimeout(r, 5000));
         priorityFee = (priorityFee * 125n) / 100n;
+        maxFee = base * 2n + priorityFee;
         continue;
       }
       throw err;
@@ -324,15 +327,15 @@ async function main() {
   );
   await sendRoleTx(
     (o) => portfolio.revokeRole(GOVERNANCE_ROLE, deployer.address, o),
-    () => !portfolio.hasRole(GOVERNANCE_ROLE, deployer.address),
+    async () => !(await portfolio.hasRole(GOVERNANCE_ROLE, deployer.address)),
   );
   await sendRoleTx(
     (o) => portfolio.revokeRole(ADMIN_ROLE, deployer.address, o),
-    () => !portfolio.hasRole(ADMIN_ROLE, deployer.address),
+    async () => !(await portfolio.hasRole(ADMIN_ROLE, deployer.address)),
   );
   await sendRoleTx(
     (o) => portfolio.revokeRole(DEFAULT_ADMIN_ROLE, deployer.address, o),
-    () => !portfolio.hasRole(DEFAULT_ADMIN_ROLE, deployer.address),
+    async () => !(await portfolio.hasRole(DEFAULT_ADMIN_ROLE, deployer.address)),
   );
   console.log("     [OK] Roles transferred to timelock");
 
@@ -415,11 +418,11 @@ async function main() {
   );
   await sendRoleTx(
     (o) => fiatAttestation.revokeRole(FDA_ADMIN_ROLE, deployer.address, o),
-    () => !fiatAttestation.hasRole(FDA_ADMIN_ROLE, deployer.address),
+    async () => !(await fiatAttestation.hasRole(FDA_ADMIN_ROLE, deployer.address)),
   );
   await sendRoleTx(
     (o) => fiatAttestation.revokeRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address, o),
-    () => !fiatAttestation.hasRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address),
+    async () => !(await fiatAttestation.hasRole(FDA_DEFAULT_ADMIN_ROLE, deployer.address)),
   );
   console.log("     [OK] Roles transferred to timelock");
 
