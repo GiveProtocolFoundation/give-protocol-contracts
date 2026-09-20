@@ -154,6 +154,15 @@ async function sendRoleTx(sendFn, checkDone) {
       return;
     } catch (err) {
       const msg = err.message || "";
+      // RPC-side flakiness: the tx may already be in flight/mined while the
+      // node fails to serve its receipt ("Unknown block", "could not be
+      // found"). Wait, then re-check the done-state before resending — this
+      // exact class aborted the Ethereum mainnet deploy mid-run (GIV-774).
+      if (msg.includes("Unknown block") || msg.includes("could not be found")) {
+        console.log(`     [WARN] RPC lost track of the tx (${msg.slice(0, 50)}) — waiting 15s, then re-checking state...`);
+        await new Promise((r) => setTimeout(r, 15000));
+        continue;
+      }
       if ((msg.includes("underpriced") || msg.includes("nonce too low")) && attempt < 4) {
         console.log(`     [RETRY ${attempt}/4] tx rejected (${msg.slice(0, 60)}) — re-checking state, bumping fees...`);
         await new Promise((r) => setTimeout(r, 5000));
