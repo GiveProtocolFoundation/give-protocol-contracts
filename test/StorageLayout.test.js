@@ -59,7 +59,8 @@ describe("StorageLayout", () => {
   // Slot 3: taxReceipts mapping(bytes32 => TaxReceipt)
   // Slot 4: suggestedTipRates (uint256[] — dynamic array)
   // Slot 5: platformFeeRate (uint256)
-  // Slots 6–55: __gap
+  // Slot 6: tokenConfigs mapping(address => TokenConfig)
+  // Slots 7–55: __gap
   // ────────────────────────────────────────────────
   describe("DurationDonation", () => {
     let donation = null, proxyAddr = null;
@@ -104,9 +105,23 @@ describe("StorageLayout", () => {
       expect(BigInt(raw)).to.equal(100n);
     });
 
-    it("Slots 6–55: __gap is zeroed", async () => {
+    it("Slot 6: tokenConfigs mapping — enabled token has populated config", async () => {
+      await donation.setTokenConfig(treasury.address, true, ethers.parseEther("500"), ethers.parseEther("2500"));
+      const baseSlot = mappingSlot(treasury.address, 6);
+      // TokenConfig: { bool enabled, uint256 perTxCap, uint256 dailyCap, uint256 dailyWindowStart, uint256 dailyVolume }
+      const enabledRaw = await readSlot(proxyAddr, baseSlot);
+      expect(BigInt(enabledRaw)).to.equal(1n); // enabled=true packed in the low byte
+
+      const perTxRaw = await readSlot(proxyAddr, BigInt(baseSlot) + 1n);
+      expect(BigInt(perTxRaw)).to.equal(ethers.parseEther("500"));
+
+      const dailyRaw = await readSlot(proxyAddr, BigInt(baseSlot) + 2n);
+      expect(BigInt(dailyRaw)).to.equal(ethers.parseEther("2500"));
+    });
+
+    it("Slots 7–55: __gap is zeroed", async () => {
       // Spot-check first, middle, and last gap slots
-      for (const slot of [6, 30, 55]) {
+      for (const slot of [7, 30, 55]) {
         const raw = await readSlot(proxyAddr, slot);
         expect(raw).to.equal(ethers.ZeroHash);
       }

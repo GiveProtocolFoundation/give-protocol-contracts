@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const hre = require("hardhat");
 const { ethers } = hre;
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("DurationDonation", () => {
   let donation = null;
@@ -34,6 +35,12 @@ describe("DurationDonation", () => {
 
     // Register charity
     await donation.registerCharity(charity.address);
+
+    // Enable the mock token + native asset with generous caps so the existing
+    // donation-path tests exercise the cap plumbing without tripping limits.
+    const NO_CAP = ethers.MaxUint256;
+    await donation.setTokenConfig(await token.getAddress(), true, NO_CAP, NO_CAP);
+    await donation.setTokenConfig(ethers.ZeroAddress, true, NO_CAP, NO_CAP);
   });
 
   describe("Deployment", () => {
@@ -529,6 +536,232 @@ describe("DurationDonation", () => {
       await expect(
         donation.connect(donor).updatePlatformFeeRate(200n)
       ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
+    });
+  });
+
+  describe("Token Caps & Allowlist", () => {
+    beforeEach(async () => {
+      await token.connect(donor).approve(await donation.getAddress(), ethers.parseEther("1000.0"));
+    });
+
+    describe("Allowlist (deny-by-default)", () => {
+      it("Should revert an ERC20 donation for a token that is not allowlisted", async () => {
+        const Other = await ethers.getContractFactory("MockERC20");
+        const other = await Other.deploy("Other Token", "OTH");
+        await other.waitForDeployment();
+        await other.mint(donor.address, ethers.parseEther("1000.0"));
+        await other.connect(donor).approve(await donation.getAddress(), ethers.parseEther("1000.0"));
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await other.getAddress(),
+            ethers.parseEther("10.0"),
+            0n,
+          ),
+        ).to.be.revertedWithCustomError(donation, "TokenNotAllowed");
+      });
+
+      it("Should revert a native donation when native is not allowlisted", async () => {
+        await donation.setTokenConfig(ethers.ZeroAddress, false, 0n, 0n);
+
+        await expect(
+          donation.connect(donor).donateNative(charity.address, 0n, {
+            value: ethers.parseEther("1.0"),
+          }),
+        ).to.be.revertedWithCustomError(donation, "TokenNotAllowed");
+      });
+    });
+
+    describe("Per-transaction cap", () => {
+      it("Should revert when charityAmount exceeds the per-tx cap", async () => {
+        const perTxCap = ethers.parseEther("500.0");
+        await donation.setTokenConfig(await token.getAddress(), true, perTxCap, ethers.MaxUint256);
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            perTxCap + 1n,
+            0n,
+          ),
+        ).to.be.revertedWithCustomError(donation, "ExceedsPerTxCap");
+      });
+
+      it("Should allow a donation exactly at the per-tx cap", async () => {
+        const perTxCap = ethers.parseEther("500.0");
+        await donation.setTokenConfig(await token.getAddress(), true, perTxCap, ethers.MaxUint256);
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            perTxCap,
+            0n,
+          ),
+        ).to.emit(donation, "DonationProcessed");
+      });
+
+      it("Should enforce per-tx cap on native donations", async () => {
+        const perTxCap = ethers.parseEther("500.0");
+        await donation.setTokenConfig(ethers.ZeroAddress, true, perTxCap, ethers.MaxUint256);
+
+        await expect(
+          donation.connect(donor).donateNative(charity.address, 0n, {
+            value: perTxCap + 1n,
+          }),
+        ).to.be.revertedWithCustomError(donation, "ExceedsPerTxCap");
+      });
+    });
+
+    describe("Rolling-24h daily cap", () => {
+      it("Should revert when accumulated volume exceeds the daily cap", async () => {
+        const perTxCap = ethers.parseEther("800.0");
+        const dailyCap = ethers.parseEther("1000.0");
+        await donation.setTokenConfig(await token.getAddress(), true, perTxCap, dailyCap);
+
+        await donation.connect(donor).processDonation(
+          charity.address,
+          await token.getAddress(),
+          ethers.parseEther("600.0"),
+          0n,
+        );
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            ethers.parseEther("600.0"),
+            0n,
+          ),
+        ).to.be.revertedWithCustomError(donation, "ExceedsDailyCap");
+      });
+
+      it("Should reset the daily window after 24h and allow donations again", async () => {
+        const perTxCap = ethers.parseEther("500.0");
+        const dailyCap = ethers.parseEther("500.0");
+        await donation.setTokenConfig(await token.getAddress(), true, perTxCap, dailyCap);
+
+        await donation.connect(donor).processDonation(
+          charity.address,
+          await token.getAddress(),
+          ethers.parseEther("400.0"),
+          0n,
+        );
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            ethers.parseEther("400.0"),
+            0n,
+          ),
+        ).to.be.revertedWithCustomError(donation, "ExceedsDailyCap");
+
+        await time.increase(24 * 60 * 60 + 1);
+
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            ethers.parseEther("400.0"),
+            0n,
+          ),
+        ).to.emit(donation, "DonationProcessed");
+      });
+    });
+
+    describe("Token config admin", () => {
+      it("Should emit TokenConfigUpdated when configuring a token", async () => {
+        const perTxCap = ethers.parseEther("500.0");
+        const dailyCap = ethers.parseEther("2500.0");
+
+        await expect(
+          donation.setTokenConfig(await token.getAddress(), true, perTxCap, dailyCap),
+        ).to.emit(donation, "TokenConfigUpdated")
+          .withArgs(await token.getAddress(), true, perTxCap, dailyCap);
+
+        const cfg = await donation.tokenConfigs(await token.getAddress());
+        expect(cfg.enabled).to.equal(true);
+        expect(cfg.perTxCap).to.equal(perTxCap);
+        expect(cfg.dailyCap).to.equal(dailyCap);
+      });
+
+      it("Should reject a non-owner setting token config", async () => {
+        await expect(
+          donation.connect(donor).setTokenConfig(
+            await token.getAddress(),
+            true,
+            ethers.parseEther("1.0"),
+            ethers.parseEther("1.0"),
+          ),
+        ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
+      });
+
+      it("Should reject an enabled token with a zero per-tx cap", async () => {
+        await expect(
+          donation.setTokenConfig(await token.getAddress(), true, 0n, ethers.parseEther("1.0")),
+        ).to.be.revertedWithCustomError(donation, "InvalidAmount");
+      });
+
+      it("Should reject an enabled token whose daily cap is below its per-tx cap", async () => {
+        await expect(
+          donation.setTokenConfig(
+            await token.getAddress(),
+            true,
+            ethers.parseEther("100.0"),
+            ethers.parseEther("50.0"),
+          ),
+        ).to.be.revertedWithCustomError(donation, "InvalidAmount");
+      });
+    });
+
+    describe("Atomic upgrade (initializeV2)", () => {
+      it("Should set Stage-1 caps + allowlist atomically via upgradeToAndCall", async () => {
+        const V2 = await ethers.getContractFactory("DurationDonation");
+        const v2Impl = await V2.deploy();
+        await v2Impl.waitForDeployment();
+
+        const tokenAddr = await token.getAddress();
+        const perTxCap = ethers.parseEther("500.0");
+        const dailyCap = ethers.parseEther("2500.0");
+
+        const initData = donation.interface.encodeFunctionData("initializeV2", [
+          [tokenAddr, ethers.ZeroAddress],
+          [
+            [true, perTxCap, dailyCap, 0n, 0n],
+            [true, perTxCap, dailyCap, 0n, 0n],
+          ],
+        ]);
+
+        await expect(
+          donation.upgradeToAndCall(await v2Impl.getAddress(), initData),
+        ).to.emit(donation, "Upgraded");
+
+        const tokenCfg = await donation.tokenConfigs(tokenAddr);
+        expect(tokenCfg.enabled).to.equal(true);
+        expect(tokenCfg.perTxCap).to.equal(perTxCap);
+        expect(tokenCfg.dailyCap).to.equal(dailyCap);
+
+        const nativeCfg = await donation.tokenConfigs(ethers.ZeroAddress);
+        expect(nativeCfg.enabled).to.equal(true);
+        expect(nativeCfg.dailyCap).to.equal(dailyCap);
+      });
+
+      it("Should not re-run initializeV2 (single-shot reinitializer)", async () => {
+        const tokenAddr = await token.getAddress();
+        await donation.initializeV2(
+          [tokenAddr],
+          [[true, ethers.parseEther("500.0"), ethers.parseEther("2500.0"), 0n, 0n]],
+        );
+
+        await expect(
+          donation.initializeV2(
+            [tokenAddr],
+            [[true, ethers.parseEther("500.0"), ethers.parseEther("2500.0"), 0n, 0n]],
+          ),
+        ).to.be.revertedWithCustomError(donation, "InvalidInitialization");
+      });
     });
   });
 

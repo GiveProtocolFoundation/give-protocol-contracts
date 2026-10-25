@@ -157,5 +157,50 @@ describe("TimelockUpgrade", () => {
         timelock.connect(executor).execute(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt),
       ).to.emit(donation, "Upgraded").withArgs(v2Addr);
     });
+
+    it("Should atomically set Stage-1 caps + allowlist via upgradeToAndCall(initializeV2)", async () => {
+      const proxyAddr = await donation.getAddress();
+
+      // Deploy new implementation
+      const V2 = await ethers.getContractFactory("DurationDonation");
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
+
+      const dummyToken = ethers.Wallet.createRandom().address;
+      const perTxCap = ethers.parseEther("500");
+      const dailyCap = ethers.parseEther("2500");
+
+      // Encode upgradeToAndCall with initializeV2 payload (native + one ERC20)
+      const initData = donation.interface.encodeFunctionData("initializeV2", [
+        [dummyToken, ethers.ZeroAddress],
+        [
+          [true, perTxCap, dailyCap, 0n, 0n],
+          [true, perTxCap, dailyCap, 0n, 0n],
+        ],
+      ]);
+      const upgradeData = donation.interface.encodeFunctionData("upgradeToAndCall", [
+        await v2Impl.getAddress(),
+        initData,
+      ]);
+      const salt = ethers.id("upgrade-v2-initialized");
+
+      await timelock.connect(proposer).schedule(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt, MIN_DELAY);
+      await time.increase(MIN_DELAY + 1);
+      await timelock.connect(executor).execute(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt);
+
+      // Caps + allowlist were applied in the same call
+      const nativeCfg = await donation.tokenConfigs(ethers.ZeroAddress);
+      expect(nativeCfg.enabled).to.equal(true);
+      expect(nativeCfg.perTxCap).to.equal(perTxCap);
+      expect(nativeCfg.dailyCap).to.equal(dailyCap);
+
+      const tokenCfg = await donation.tokenConfigs(dummyToken);
+      expect(tokenCfg.enabled).to.equal(true);
+
+      // Deny-by-default: an unconfigured token is still disabled
+      const otherToken = ethers.Wallet.createRandom().address;
+      const otherCfg = await donation.tokenConfigs(otherToken);
+      expect(otherCfg.enabled).to.equal(false);
+    });
   });
 });

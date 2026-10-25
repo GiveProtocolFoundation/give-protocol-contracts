@@ -23,12 +23,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * | 3     | taxReceipts            | mapping(bytes32 => TaxReceipt)                 |
  * | 4     | suggestedTipRates      | uint256[] (dynamic array)                      |
  * | 5     | platformFeeRate        | uint256                                        |
- * | 6-55  | __gap                  | uint256[50]                                    |
+ * | 6     | tokenConfigs           | mapping(address => TokenConfig)                 |
+ * | 7-55  | __gap                  | uint256[49]                                    |
  *
  * Constants (bytecode, no storage slot):
  * - BASIS_POINTS = 10000
  * - MINIMUM_DONATION = 1e15
  * - MAX_FEE_RATE = 500
+ * - CAP_WINDOW = 24 hours
  */
 contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
@@ -51,6 +53,14 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         string receiptType;              // "DUAL_BENEFICIARY" or "SINGLE_BENEFICIARY"
     }
 
+    struct TokenConfig {
+        bool enabled;                    // Deny-by-default allowlist gate
+        uint256 perTxCap;                // Token units, per-transaction (on charityAmount principal)
+        uint256 dailyCap;                // Token units, rolling 24h (per token per chain)
+        uint256 dailyWindowStart;        // Start timestamp of the current 24h bucket
+        uint256 dailyVolume;             // Accumulated principal within the current window
+    }
+
     // State variables
     address public giveProtocolTreasury;
     mapping(address => Charity) public charities;
@@ -66,8 +76,12 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     uint256 public platformFeeRate;
     uint256 public constant MAX_FEE_RATE = 500; // Cap at 5%
 
+    // Per-token caps / allowlist (deny-by-default). Native token uses address(0).
+    mapping(address => TokenConfig) public tokenConfigs;
+    uint256 public constant CAP_WINDOW = 24 hours;
+
     // Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     // Events
     event CharityRegistered(address indexed charity, uint256 timestamp);
@@ -85,6 +99,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     event TaxReceiptGenerated(bytes32 indexed receiptId, address indexed donor);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event PlatformFeeRateUpdated(uint256 oldRate, uint256 newRate);
+    event TokenConfigUpdated(address indexed token, bool enabled, uint256 perTxCap, uint256 dailyCap);
 
     // Errors
     error CharityNotRegistered(address charity);
@@ -93,6 +108,9 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     error InvalidTipOption(uint8 tipOption);
     error TransferFailed(address token, address from, address to, uint256 amount);
     error InvalidFeeRate(uint256 rate);
+    error TokenNotAllowed(address token);
+    error ExceedsPerTxCap(address token, uint256 amount, uint256 cap);
+    error ExceedsDailyCap(address token, uint256 amount, uint256 dailyVolume, uint256 cap);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -111,6 +129,24 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         suggestedTipRates.push(500);
         suggestedTipRates.push(1000);
         suggestedTipRates.push(2000);
+    }
+
+    /**
+     * @dev Atomic Stage-1 caps/allowlist initialization.
+     * Called as part of `upgradeToAndCall(newImpl, initializeV2(tokens, configs))`
+     * so the upgrade and initial config land in a single storage write.
+     * Deny-by-default: any token not listed here (incl. address(0)) is disabled.
+     */
+    function initializeV2(
+        address[] calldata tokens,
+        TokenConfig[] calldata configs
+    ) external onlyOwner reinitializer(2) {
+        if (tokens.length != configs.length) {
+            revert InvalidAmount(tokens.length, "Token/config length mismatch");
+        }
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap);
+        }
     }
 
     /**
@@ -170,6 +206,57 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     }
 
     /**
+     * @dev Configure (or disable) a token's allowlist + caps. onlyOwner (timelock).
+     * Use address(0) as `token` for the native asset.
+     * Setting enabled=false (or calling with no caps) removes the token from the allowlist.
+     */
+    function setTokenConfig(address token, bool enabled, uint256 perTxCap, uint256 dailyCap) external onlyOwner {
+        _setTokenConfig(token, enabled, perTxCap, dailyCap);
+    }
+
+    function _setTokenConfig(address token, bool enabled, uint256 perTxCap, uint256 dailyCap) internal {
+        if (enabled) {
+            if (perTxCap == 0) {
+                revert InvalidAmount(perTxCap, "Per-tx cap must be > 0");
+            }
+            if (dailyCap < perTxCap) {
+                revert InvalidAmount(dailyCap, "Daily cap must be >= per-tx cap");
+            }
+        }
+        tokenConfigs[token] = TokenConfig({
+            enabled: enabled,
+            perTxCap: perTxCap,
+            dailyCap: dailyCap,
+            dailyWindowStart: 0,
+            dailyVolume: 0
+        });
+        emit TokenConfigUpdated(token, enabled, perTxCap, dailyCap);
+    }
+
+    /**
+     * @dev Enforce allowlist + per-tx + rolling-24h caps on the principal amount.
+     * Must run before any transfer (checks-effects-interactions).
+     */
+    function _checkTokenCaps(address token, uint256 amount) internal {
+        TokenConfig storage cfg = tokenConfigs[token];
+        if (!cfg.enabled) {
+            revert TokenNotAllowed(token);
+        }
+        if (amount > cfg.perTxCap) {
+            revert ExceedsPerTxCap(token, amount, cfg.perTxCap);
+        }
+        if (block.timestamp >= cfg.dailyWindowStart + CAP_WINDOW) {
+            cfg.dailyWindowStart = block.timestamp;
+            cfg.dailyVolume = 0;
+        }
+        uint256 newDailyVolume = cfg.dailyVolume + amount;
+        if (newDailyVolume > cfg.dailyCap) {
+            revert ExceedsDailyCap(token, amount, cfg.dailyVolume, cfg.dailyCap);
+        }
+        cfg.dailyVolume = newDailyVolume;
+    }
+
+    /**
      * @dev Process donation with mandatory platform fee and optional tip
      * @param charity The verified charity receiving the donation
      * @param token The ERC20 token being donated
@@ -193,6 +280,8 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         if (charityAmount < MINIMUM_DONATION) {
             revert InvalidAmount(charityAmount, "Donation amount too small");
         }
+
+        _checkTokenCaps(token, charityAmount);
 
         // Calculate mandatory platform fee
         uint256 mandatoryFee = (charityAmount * platformFeeRate) / BASIS_POINTS;
@@ -300,6 +389,8 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         if (charityAmount < MINIMUM_DONATION) {
             revert InvalidAmount(charityAmount, "Donation amount too small");
         }
+
+        _checkTokenCaps(address(0), charityAmount);
 
         // Calculate mandatory platform fee
         uint256 mandatoryFee = (charityAmount * platformFeeRate) / BASIS_POINTS;
