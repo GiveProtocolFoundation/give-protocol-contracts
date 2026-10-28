@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./CharityRegistry.sol";
 
 /**
  * @title DurationDonation
@@ -18,13 +19,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * | Slot  | Variable               | Type                                          |
  * |-------|------------------------|-----------------------------------------------|
  * | 0     | giveProtocolTreasury   | address                                       |
- * | 1     | charities              | mapping(address => Charity)                    |
+ * | 1     | charityRegistry        | CharityRegistry                               |
  * | 2     | donations              | mapping(address => mapping(address => uint256))|
  * | 3     | taxReceipts            | mapping(bytes32 => TaxReceipt)                 |
  * | 4     | suggestedTipRates      | uint256[] (dynamic array)                      |
  * | 5     | platformFeeRate        | uint256                                        |
  * | 6     | tokenConfigs           | mapping(address => TokenConfig)                 |
- * | 7-55  | __gap                  | uint256[49]                                    |
+ * | 7     | totalReceived          | mapping(address => uint256)                    |
+ * | 8-55  | __gap                  | uint256[48]                                    |
  *
  * Constants (bytecode, no storage slot):
  * - BASIS_POINTS = 10000
@@ -34,13 +36,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  */
 contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
-
-    struct Charity {
-        bool isRegistered;
-        address walletAddress;
-        uint256 totalReceived;
-        bool isActive;
-    }
 
     struct TaxReceipt {
         address donor;
@@ -63,7 +58,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
 
     // State variables
     address public giveProtocolTreasury;
-    mapping(address => Charity) public charities;
+    CharityRegistry public charityRegistry;
     mapping(address => mapping(address => uint256)) public donations; // donor => charity => amount
     mapping(bytes32 => TaxReceipt) public taxReceipts;
 
@@ -80,12 +75,13 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     mapping(address => TokenConfig) public tokenConfigs;
     uint256 public constant CAP_WINDOW = 24 hours;
 
+    // Donation accounting: total net amount received by each charity on this chain.
+    mapping(address => uint256) public totalReceived;
+
     // Storage gap for future upgrades
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 
     // Events
-    event CharityRegistered(address indexed charity, uint256 timestamp);
-    event CharityStatusUpdated(address indexed charity, bool isActive);
     event DonationProcessed(
         address indexed donor,
         address indexed charity,
@@ -150,35 +146,14 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     }
 
     /**
-     * @dev Register a new charity
-     * @param charityAddress The address of the charity to register
+     * @dev Wire the standalone CharityRegistry (set-once). Charity registration /
+     * status is governed directly on the registry (owned by the protocol
+     * timelock); this contract only reads it for validation.
      */
-    function registerCharity(address charityAddress) external onlyOwner {
-        require(charityAddress != address(0), "Invalid charity address");
-        require(!charities[charityAddress].isRegistered, "Charity already registered");
-
-        charities[charityAddress] = Charity({
-            isRegistered: true,
-            walletAddress: charityAddress,
-            totalReceived: 0,
-            isActive: true
-        });
-
-        emit CharityRegistered(charityAddress, block.timestamp);
-    }
-
-    /**
-     * @dev Update charity active status
-     * @param charityAddress The address of the charity
-     * @param isActive New active status
-     */
-    function updateCharityStatus(address charityAddress, bool isActive) external onlyOwner {
-        if (!charities[charityAddress].isRegistered) {
-            revert CharityNotRegistered(charityAddress);
-        }
-
-        charities[charityAddress].isActive = isActive;
-        emit CharityStatusUpdated(charityAddress, isActive);
+    function setCharityRegistry(address _charityRegistry) external onlyOwner {
+        require(_charityRegistry != address(0), "Invalid registry address");
+        require(address(charityRegistry) == address(0), "Registry already set");
+        charityRegistry = CharityRegistry(_charityRegistry);
     }
 
     /**
@@ -269,13 +244,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         uint256 charityAmount,
         uint256 platformTip
     ) public nonReentrant whenNotPaused {
-        if (!charities[charity].isRegistered) {
-            revert CharityNotRegistered(charity);
-        }
-
-        if (!charities[charity].isActive) {
-            revert CharityNotActive(charity);
-        }
+        _requireActiveCharity(charity);
 
         if (charityAmount < MINIMUM_DONATION) {
             revert InvalidAmount(charityAmount, "Donation amount too small");
@@ -298,7 +267,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         }
 
         // Update tracking (track net amount received by charity)
-        charities[charity].totalReceived += netToCharity;
+        totalReceived[charity] += netToCharity;
         donations[msg.sender][charity] += netToCharity;
 
         // Generate donation ID
@@ -375,13 +344,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         address charity,
         uint256 platformTip
     ) external payable nonReentrant whenNotPaused {
-        if (!charities[charity].isRegistered) {
-            revert CharityNotRegistered(charity);
-        }
-
-        if (!charities[charity].isActive) {
-            revert CharityNotActive(charity);
-        }
+        _requireActiveCharity(charity);
 
         // Gross charity amount is msg.value minus optional tip
         uint256 charityAmount = msg.value - platformTip;
@@ -403,7 +366,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         );
 
         // Update tracking BEFORE external calls (checks-effects-interactions pattern)
-        charities[charity].totalReceived += netToCharity;
+        totalReceived[charity] += netToCharity;
         donations[msg.sender][charity] += netToCharity;
 
         // Generate receipt (state update)
@@ -486,16 +449,27 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     function getCharityInfo(address charityAddress) external view returns (
         bool isRegistered,
         address walletAddress,
-        uint256 totalReceived,
+        uint256 totalReceivedAmount,
         bool isActive
     ) {
-        Charity storage charity = charities[charityAddress];
         return (
-            charity.isRegistered,
-            charity.walletAddress,
-            charity.totalReceived,
-            charity.isActive
+            charityRegistry.isRegistered(charityAddress),
+            charityAddress,
+            totalReceived[charityAddress],
+            charityRegistry.isActive(charityAddress)
         );
+    }
+
+    /**
+     * @dev Require that a charity is registered and active (read from the registry).
+     */
+    function _requireActiveCharity(address charity) internal view {
+        if (!charityRegistry.isRegistered(charity)) {
+            revert CharityNotRegistered(charity);
+        }
+        if (!charityRegistry.isActive(charity)) {
+            revert CharityNotActive(charity);
+        }
     }
 
     /**

@@ -5,6 +5,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("DurationDonation", () => {
   let donation = null;
+  let registry = null;
   let token = null;
   let owner = null;
   let charity = null;
@@ -24,6 +25,11 @@ describe("DurationDonation", () => {
     token = await MockToken.deploy("Mock Token", "MTK");
     await token.mint(donor.address, ethers.parseEther("1000.0"));
 
+    // Deploy standalone CharityRegistry (non-upgradeable) and wire it into V1
+    const CharityRegistry = await ethers.getContractFactory("CharityRegistry");
+    registry = await CharityRegistry.deploy(owner.address);
+    await registry.waitForDeployment();
+
     // Deploy donation contract via proxy
     const DurationDonation = await ethers.getContractFactory("DurationDonation");
     donation = await hre.upgrades.deployProxy(
@@ -33,8 +39,11 @@ describe("DurationDonation", () => {
     );
     await donation.waitForDeployment();
 
-    // Register charity
-    await donation.registerCharity(charity.address);
+    // Point the donation contract at the standalone registry (set-once)
+    await donation.setCharityRegistry(await registry.getAddress());
+
+    // Register charity in the standalone registry
+    await registry.registerCharity(charity.address);
 
     // Enable the mock token + native asset with generous caps so the existing
     // donation-path tests exercise the cap plumbing without tripping limits.
@@ -67,8 +76,8 @@ describe("DurationDonation", () => {
   describe("Charity Registration", () => {
     it("Should allow owner to register a charity", async () => {
       const newCharity = ethers.Wallet.createRandom().address;
-      await expect(donation.registerCharity(newCharity))
-        .to.emit(donation, "CharityRegistered");
+      await expect(registry.registerCharity(newCharity))
+        .to.emit(registry, "CharityRegistered");
 
       const charityInfo = await donation.getCharityInfo(newCharity);
       expect(charityInfo.isRegistered).to.equal(true);
@@ -78,27 +87,27 @@ describe("DurationDonation", () => {
     it("Should not allow non-owner to register a charity", async () => {
       const newCharity = ethers.Wallet.createRandom().address;
       await expect(
-        donation.connect(donor).registerCharity(newCharity)
-      ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
+        registry.connect(donor).registerCharity(newCharity)
+      ).to.be.revertedWithCustomError(registry, "OwnableUnauthorizedAccount");
     });
 
     it("Should not allow registering zero address", async () => {
       await expect(
-        donation.registerCharity(ethers.ZeroAddress)
+        registry.registerCharity(ethers.ZeroAddress)
       ).to.be.revertedWith("Invalid charity address");
     });
 
     it("Should not allow registering same charity twice", async () => {
       await expect(
-        donation.registerCharity(charity.address)
+        registry.registerCharity(charity.address)
       ).to.be.revertedWith("Charity already registered");
     });
   });
 
   describe("Charity Status", () => {
     it("Should allow owner to update charity status", async () => {
-      await expect(donation.updateCharityStatus(charity.address, false))
-        .to.emit(donation, "CharityStatusUpdated")
+      await expect(registry.updateCharityStatus(charity.address, false))
+        .to.emit(registry, "CharityStatusUpdated")
         .withArgs(charity.address, false);
 
       const charityInfo = await donation.getCharityInfo(charity.address);
@@ -107,14 +116,14 @@ describe("DurationDonation", () => {
 
     it("Should not allow updating unregistered charity", async () => {
       await expect(
-        donation.updateCharityStatus(nonOwner.address, false)
-      ).to.be.revertedWithCustomError(donation, "CharityNotRegistered");
+        registry.updateCharityStatus(nonOwner.address, false)
+      ).to.be.revertedWithCustomError(registry, "CharityNotRegistered");
     });
 
     it("Should not allow non-owner to update charity status", async () => {
       await expect(
-        donation.connect(donor).updateCharityStatus(charity.address, false)
-      ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
+        registry.connect(donor).updateCharityStatus(charity.address, false)
+      ).to.be.revertedWithCustomError(registry, "OwnableUnauthorizedAccount");
     });
   });
 
@@ -209,7 +218,7 @@ describe("DurationDonation", () => {
     });
 
     it("Should not allow donation to inactive charity", async () => {
-      await donation.updateCharityStatus(charity.address, false);
+      await registry.updateCharityStatus(charity.address, false);
 
       await expect(
         donation.connect(donor).processDonation(
@@ -248,7 +257,7 @@ describe("DurationDonation", () => {
       expect(donationAmount).to.equal(expectedNetToCharity);
 
       const charityInfo = await donation.getCharityInfo(charity.address);
-      expect(charityInfo.totalReceived).to.equal(expectedNetToCharity);
+      expect(charityInfo.totalReceivedAmount).to.equal(expectedNetToCharity);
     });
   });
 
@@ -415,7 +424,7 @@ describe("DurationDonation", () => {
     });
 
     it("Should not allow native donation to inactive charity", async () => {
-      await donation.updateCharityStatus(charity.address, false);
+      await registry.updateCharityStatus(charity.address, false);
 
       await expect(
         donation.connect(donor).donateNative(charity.address, 0n, {
@@ -825,7 +834,7 @@ describe("DurationDonation", () => {
 
       expect(charityInfo.isRegistered).to.equal(true);
       expect(charityInfo.walletAddress).to.equal(charity.address);
-      expect(charityInfo.totalReceived).to.equal(0);
+      expect(charityInfo.totalReceivedAmount).to.equal(0);
       expect(charityInfo.isActive).to.equal(true);
     });
 
@@ -833,7 +842,7 @@ describe("DurationDonation", () => {
       const charityInfo = await donation.getCharityInfo(nonOwner.address);
 
       expect(charityInfo.isRegistered).to.equal(false);
-      expect(charityInfo.totalReceived).to.equal(0);
+      expect(charityInfo.totalReceivedAmount).to.equal(0);
     });
 
     it("Should return correct donation amount", async () => {
