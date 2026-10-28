@@ -242,18 +242,18 @@ async function main() {
 
   // 1. Deploy MockERC20 (testnet only)
   if (chainConfig.isTestnet) {
-    console.log("\n[1/9] Deploying MockERC20...");
+    console.log("\n[1/10] Deploying MockERC20...");
     const MockERC20 = await hre.ethers.getContractFactory("MockERC20");
     const mockToken = await MockERC20.deploy("Give Test Token", "GIVE");
     await mockToken.waitForDeployment();
     contracts.MockERC20 = { address: await mockToken.getAddress() };
     console.log(`[OK] MockERC20: ${contracts.MockERC20.address}`);
   } else {
-    console.log("\n[1/9] Skipping MockERC20 (mainnet deployment)");
+    console.log("\n[1/10] Skipping MockERC20 (mainnet deployment)");
   }
 
   // 2. Deploy TimelockController — 72h (fund-holding contracts)
-  console.log(`\n[2/9] Deploying TimelockController (${FUND_HOLDING_DELAY / 3600}h — fund-holding)...`);
+  console.log(`\n[2/10] Deploying TimelockController (${FUND_HOLDING_DELAY / 3600}h — fund-holding)...`);
   const TimelockController = await hre.ethers.getContractFactory("TimelockController");
   const timelock72h = await TimelockController.deploy(
     FUND_HOLDING_DELAY,
@@ -266,7 +266,7 @@ async function main() {
   console.log(`[OK] TimelockController (72h): ${timelocks.fundHolding72h}`);
 
   // 3. Deploy TimelockController — 24h (record-keeping contracts)
-  console.log(`\n[3/9] Deploying TimelockController (${RECORD_KEEPING_DELAY / 3600}h — record-keeping)...`);
+  console.log(`\n[3/10] Deploying TimelockController (${RECORD_KEEPING_DELAY / 3600}h — record-keeping)...`);
   const timelock24h = await TimelockController.deploy(
     RECORD_KEEPING_DELAY,
     [multiSigAddress], // proposers
@@ -277,12 +277,21 @@ async function main() {
   timelocks.recordKeeping24h = await timelock24h.getAddress();
   console.log(`[OK] TimelockController (24h): ${timelocks.recordKeeping24h}`);
 
-  // 4. Deploy DurationDonation proxy (fund-holding → 72h timelock as owner)
-  console.log("\n[4/9] Deploying DurationDonation (UUPS proxy)...");
+  // 4. Deploy CharityRegistry (non-upgradeable, owned by 72h timelock)
+  console.log("\n[4/10] Deploying CharityRegistry (non-upgradeable)...");
+  const CharityRegistry = await hre.ethers.getContractFactory("CharityRegistry");
+  const charityRegistry = await CharityRegistry.deploy(timelocks.fundHolding72h);
+  await charityRegistry.waitForDeployment();
+  contracts.CharityRegistry = { address: await charityRegistry.getAddress() };
+  console.log(`[OK] CharityRegistry: ${contracts.CharityRegistry.address}`);
+  console.log(`     Owner: ${timelocks.fundHolding72h} (72h timelock)`);
+
+  // 5. Deploy DurationDonation proxy (deployer as temporary owner to wire registry)
+  console.log("\n[5/10] Deploying DurationDonation (UUPS proxy)...");
   const DurationDonation = await hre.ethers.getContractFactory("DurationDonation");
   const donation = await hre.upgrades.deployProxy(
     DurationDonation,
-    [treasuryAddress, timelocks.fundHolding72h],
+    [treasuryAddress, deployer.address],
     { initializer: "initialize", kind: "uups" },
   );
   await donation.waitForDeployment();
@@ -292,8 +301,24 @@ async function main() {
   console.log(`[OK] DurationDonation proxy: ${donationProxy}`);
   console.log(`     Implementation: ${donationImpl}`);
 
-  // 5. Deploy PortfolioFunds proxy (fund-holding → 72h timelock as admin)
-  console.log("\n[5/9] Deploying PortfolioFunds (UUPS proxy)...");
+  // Wire CharityRegistry into DurationDonation (set-once)
+  console.log("     Wiring CharityRegistry into DurationDonation...");
+  await sendRoleTx(
+    (o) => donation.setCharityRegistry(contracts.CharityRegistry.address, o),
+    async () => (await donation.charityRegistry()) !== hre.ethers.ZeroAddress,
+  );
+  console.log(`     [OK] CharityRegistry wired: ${contracts.CharityRegistry.address}`);
+
+  // Transfer DurationDonation ownership to 72h timelock
+  console.log("     Transferring DurationDonation ownership to timelock...");
+  await sendRoleTx(
+    (o) => donation.transferOwnership(timelocks.fundHolding72h, o),
+    async () => (await donation.owner()) === timelocks.fundHolding72h,
+  );
+  console.log(`     [OK] Ownership transferred to: ${timelocks.fundHolding72h}`);
+
+  // 6. Deploy PortfolioFunds proxy (fund-holding → 72h timelock as admin)
+  console.log("\n[6/10] Deploying PortfolioFunds (UUPS proxy)...");
   const PortfolioFunds = await hre.ethers.getContractFactory("PortfolioFunds");
   const portfolio = await hre.upgrades.deployProxy(
     PortfolioFunds,
@@ -339,8 +364,8 @@ async function main() {
   );
   console.log("     [OK] Roles transferred to timelock");
 
-  // 6. Deploy CharityScheduledDistribution proxy (fund-holding → 72h timelock as owner)
-  console.log("\n[6/9] Deploying CharityScheduledDistribution (UUPS proxy)...");
+  // 7. Deploy CharityScheduledDistribution proxy (fund-holding → 72h timelock as owner)
+  console.log("\n[7/10] Deploying CharityScheduledDistribution (UUPS proxy)...");
   const CharityScheduledDistribution = await hre.ethers.getContractFactory("CharityScheduledDistribution");
   const distribution = await hre.upgrades.deployProxy(
     CharityScheduledDistribution,
@@ -354,8 +379,8 @@ async function main() {
   console.log(`[OK] CharityScheduledDistribution proxy: ${distributionProxy}`);
   console.log(`     Implementation: ${distributionImpl}`);
 
-  // 7. Deploy VolunteerVerification proxy (record-keeping → 24h timelock as owner)
-  console.log("\n[7/9] Deploying VolunteerVerification (UUPS proxy)...");
+  // 8. Deploy VolunteerVerification proxy (record-keeping → 24h timelock as owner)
+  console.log("\n[8/10] Deploying VolunteerVerification (UUPS proxy)...");
   const VolunteerVerification = await hre.ethers.getContractFactory("VolunteerVerification");
   const verification = await hre.upgrades.deployProxy(
     VolunteerVerification,
@@ -369,16 +394,16 @@ async function main() {
   console.log(`[OK] VolunteerVerification proxy: ${verificationProxy}`);
   console.log(`     Implementation: ${verificationImpl}`);
 
-  // 8. Deploy DistributionExecutor (not upgradeable — takes proxy address)
-  console.log("\n[8/9] Deploying DistributionExecutor...");
+  // 9. Deploy DistributionExecutor (not upgradeable — takes proxy address)
+  console.log("\n[9/10] Deploying DistributionExecutor...");
   const DistributionExecutor = await hre.ethers.getContractFactory("DistributionExecutor");
   const executor = await DistributionExecutor.deploy(distributionProxy);
   await executor.waitForDeployment();
   contracts.DistributionExecutor = { address: await executor.getAddress() };
   console.log(`[OK] DistributionExecutor: ${contracts.DistributionExecutor.address}`);
 
-  // 9. Deploy FiatDonationAttestation proxy (record-keeping → 24h timelock as admin)
-  console.log("\n[9/9] Deploying FiatDonationAttestation (UUPS proxy)...");
+  // 10. Deploy FiatDonationAttestation proxy (record-keeping → 24h timelock as admin)
+  console.log("\n[10/10] Deploying FiatDonationAttestation (UUPS proxy)...");
   const chainId = (await hre.ethers.provider.getNetwork()).chainId;
   const FiatDonationAttestation = await hre.ethers.getContractFactory("FiatDonationAttestation");
   const fiatAttestation = await hre.upgrades.deployProxy(
@@ -480,6 +505,7 @@ async function main() {
     console.log(`VITE_${envPrefix}_TOKEN_ADDRESS=${contracts.MockERC20.address}`);
   }
   console.log(`VITE_${envPrefix}_DONATION_ADDRESS=${contracts.DurationDonation.proxy}`);
+  console.log(`VITE_${envPrefix}_CHARITY_REGISTRY_ADDRESS=${contracts.CharityRegistry.address}`);
   console.log(`VITE_${envPrefix}_PORTFOLIO_ADDRESS=${contracts.PortfolioFunds.proxy}`);
   console.log(`VITE_${envPrefix}_VERIFICATION_ADDRESS=${contracts.VolunteerVerification.proxy}`);
   console.log(`VITE_${envPrefix}_DISTRIBUTION_ADDRESS=${contracts.CharityScheduledDistribution.proxy}`);
@@ -519,6 +545,8 @@ async function main() {
       [multiSigAddress],
       hre.ethers.ZeroAddress,
     ]);
+    // Verify CharityRegistry (non-upgradeable, constructor arg = timelock address)
+    await verifyContract(contracts.CharityRegistry.address, [timelocks.fundHolding72h]);
     // Verify implementation contracts
     await verifyContract(contracts.DurationDonation.implementation, []);
     await verifyContract(contracts.PortfolioFunds.implementation, []);
