@@ -54,19 +54,26 @@ describe("StorageLayout", () => {
   // ────────────────────────────────────────────────
   // DurationDonation
   // Slot 0: giveProtocolTreasury (address)
-  // Slot 1: charities mapping(address => Charity)
+  // Slot 1: charityRegistry (CharityRegistry)
   // Slot 2: donations mapping(address => mapping(address => uint256))
   // Slot 3: taxReceipts mapping(bytes32 => TaxReceipt)
   // Slot 4: suggestedTipRates (uint256[] — dynamic array)
   // Slot 5: platformFeeRate (uint256)
-  // Slots 6–55: __gap
+  // Slot 6: tokenConfigs mapping(address => TokenConfig)
+  // Slot 7: totalReceived mapping(address => uint256)
+  // Slots 8–55: __gap
   // ────────────────────────────────────────────────
   describe("DurationDonation", () => {
-    let donation = null, proxyAddr = null;
+    let donation = null, registry = null, proxyAddr = null;
     let owner = null, treasury = null, charity = null;
 
     beforeEach(async () => {
       [owner, treasury, charity] = await ethers.getSigners();
+
+      const CharityRegistry = await ethers.getContractFactory("CharityRegistry");
+      registry = await CharityRegistry.deploy(owner.address);
+      await registry.waitForDeployment();
+
       const DurationDonation = await ethers.getContractFactory("DurationDonation");
       donation = await hre.upgrades.deployProxy(
         DurationDonation,
@@ -74,6 +81,7 @@ describe("StorageLayout", () => {
         { initializer: "initialize", kind: "uups" },
       );
       await donation.waitForDeployment();
+      await donation.setCharityRegistry(await registry.getAddress());
       proxyAddr = await donation.getAddress();
     });
 
@@ -83,15 +91,10 @@ describe("StorageLayout", () => {
       expect(addr).to.equal(treasury.address);
     });
 
-    it("Slot 1: charities mapping — registered charity has isRegistered=true", async () => {
-      await donation.registerCharity(charity.address);
-      // Charity struct: { bool isRegistered, address walletAddress, uint256 totalReceived, bool isActive }
-      // First field (isRegistered) at mappingSlot(charity, 1) + 0
-      const slot = mappingSlot(charity.address, 1);
-      const raw = await readSlot(proxyAddr, slot);
-      // isRegistered is packed with walletAddress in the first 32-byte word
-      // bool(1 byte) + address(20 bytes) fit in one slot
-      expect(raw).to.not.equal(ethers.ZeroHash); // non-zero means populated
+    it("Slot 1: charityRegistry address", async () => {
+      const raw = await readSlot(proxyAddr, 1);
+      const addr = ethers.getAddress(`0x${raw.slice(26)}`); // last 20 bytes
+      expect(addr).to.equal(await registry.getAddress());
     });
 
     it("Slot 4: suggestedTipRates array length = 3", async () => {
@@ -104,9 +107,36 @@ describe("StorageLayout", () => {
       expect(BigInt(raw)).to.equal(100n);
     });
 
-    it("Slots 6–55: __gap is zeroed", async () => {
+    it("Slot 6: tokenConfigs mapping — enabled token has populated config", async () => {
+      await donation.setTokenConfig(treasury.address, true, ethers.parseEther("500"), ethers.parseEther("2500"));
+      const baseSlot = mappingSlot(treasury.address, 6);
+      // TokenConfig: { bool enabled, uint256 perTxCap, uint256 dailyCap, uint256 dailyWindowStart, uint256 dailyVolume }
+      const enabledRaw = await readSlot(proxyAddr, baseSlot);
+      expect(BigInt(enabledRaw)).to.equal(1n); // enabled=true packed in the low byte
+
+      const perTxRaw = await readSlot(proxyAddr, BigInt(baseSlot) + 1n);
+      expect(BigInt(perTxRaw)).to.equal(ethers.parseEther("500"));
+
+      const dailyRaw = await readSlot(proxyAddr, BigInt(baseSlot) + 2n);
+      expect(BigInt(dailyRaw)).to.equal(ethers.parseEther("2500"));
+    });
+
+    it("Slot 7: totalReceived mapping — native donation writes per-charity total", async () => {
+      await registry.registerCharity(charity.address);
+      await donation.setTokenConfig(ethers.ZeroAddress, true, ethers.MaxUint256, ethers.MaxUint256);
+
+      const gross = ethers.parseEther("1");
+      const expectedNet = gross - (gross * 100n) / 10000n;
+      await donation.donateNative(charity.address, 0n, { value: gross });
+
+      const slot = mappingSlot(charity.address, 7);
+      const raw = await readSlot(proxyAddr, slot);
+      expect(BigInt(raw)).to.equal(expectedNet);
+    });
+
+    it("Slots 8–55: __gap is zeroed", async () => {
       // Spot-check first, middle, and last gap slots
-      for (const slot of [6, 30, 55]) {
+      for (const slot of [8, 30, 55]) {
         const raw = await readSlot(proxyAddr, slot);
         expect(raw).to.equal(ethers.ZeroHash);
       }

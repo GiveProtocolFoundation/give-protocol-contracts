@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./CharityRegistry.sol";
 
 /**
  * @title DurationDonation
@@ -18,27 +19,23 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
  * | Slot  | Variable               | Type                                          |
  * |-------|------------------------|-----------------------------------------------|
  * | 0     | giveProtocolTreasury   | address                                       |
- * | 1     | charities              | mapping(address => Charity)                    |
+ * | 1     | charityRegistry        | CharityRegistry                               |
  * | 2     | donations              | mapping(address => mapping(address => uint256))|
  * | 3     | taxReceipts            | mapping(bytes32 => TaxReceipt)                 |
  * | 4     | suggestedTipRates      | uint256[] (dynamic array)                      |
  * | 5     | platformFeeRate        | uint256                                        |
- * | 6-55  | __gap                  | uint256[50]                                    |
+ * | 6     | tokenConfigs           | mapping(address => TokenConfig)                 |
+ * | 7     | totalReceived          | mapping(address => uint256)                    |
+ * | 8-55  | __gap                  | uint256[48]                                    |
  *
  * Constants (bytecode, no storage slot):
  * - BASIS_POINTS = 10000
  * - MINIMUM_DONATION = 1e15
  * - MAX_FEE_RATE = 500
+ * - CAP_WINDOW = 24 hours
  */
 contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable, UUPSUpgradeable {
     using SafeERC20 for IERC20;
-
-    struct Charity {
-        bool isRegistered;
-        address walletAddress;
-        uint256 totalReceived;
-        bool isActive;
-    }
 
     struct TaxReceipt {
         address donor;
@@ -51,9 +48,17 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         string receiptType;              // "DUAL_BENEFICIARY" or "SINGLE_BENEFICIARY"
     }
 
+    struct TokenConfig {
+        bool enabled;                    // Deny-by-default allowlist gate
+        uint256 perTxCap;                // Token units, per-transaction (on charityAmount principal)
+        uint256 dailyCap;                // Token units, rolling 24h (per token per chain)
+        uint256 dailyWindowStart;        // Start timestamp of the current 24h bucket
+        uint256 dailyVolume;             // Accumulated principal within the current window
+    }
+
     // State variables
     address public giveProtocolTreasury;
-    mapping(address => Charity) public charities;
+    CharityRegistry public charityRegistry;
     mapping(address => mapping(address => uint256)) public donations; // donor => charity => amount
     mapping(bytes32 => TaxReceipt) public taxReceipts;
 
@@ -66,12 +71,17 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     uint256 public platformFeeRate;
     uint256 public constant MAX_FEE_RATE = 500; // Cap at 5%
 
+    // Per-token caps / allowlist (deny-by-default). Native token uses address(0).
+    mapping(address => TokenConfig) public tokenConfigs;
+    uint256 public constant CAP_WINDOW = 24 hours;
+
+    // Donation accounting: total net amount received by each charity on this chain.
+    mapping(address => uint256) public totalReceived;
+
     // Storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[48] private __gap;
 
     // Events
-    event CharityRegistered(address indexed charity, uint256 timestamp);
-    event CharityStatusUpdated(address indexed charity, bool isActive);
     event DonationProcessed(
         address indexed donor,
         address indexed charity,
@@ -85,6 +95,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     event TaxReceiptGenerated(bytes32 indexed receiptId, address indexed donor);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event PlatformFeeRateUpdated(uint256 oldRate, uint256 newRate);
+    event TokenConfigUpdated(address indexed token, bool enabled, uint256 perTxCap, uint256 dailyCap);
 
     // Errors
     error CharityNotRegistered(address charity);
@@ -93,6 +104,9 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     error InvalidTipOption(uint8 tipOption);
     error TransferFailed(address token, address from, address to, uint256 amount);
     error InvalidFeeRate(uint256 rate);
+    error TokenNotAllowed(address token);
+    error ExceedsPerTxCap(address token, uint256 amount, uint256 cap);
+    error ExceedsDailyCap(address token, uint256 amount, uint256 dailyVolume, uint256 cap);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -114,35 +128,32 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     }
 
     /**
-     * @dev Register a new charity
-     * @param charityAddress The address of the charity to register
+     * @dev Atomic Stage-1 caps/allowlist initialization.
+     * Called as part of `upgradeToAndCall(newImpl, initializeV2(tokens, configs))`
+     * so the upgrade and initial config land in a single storage write.
+     * Deny-by-default: any token not listed here (incl. address(0)) is disabled.
      */
-    function registerCharity(address charityAddress) external onlyOwner {
-        require(charityAddress != address(0), "Invalid charity address");
-        require(!charities[charityAddress].isRegistered, "Charity already registered");
-
-        charities[charityAddress] = Charity({
-            isRegistered: true,
-            walletAddress: charityAddress,
-            totalReceived: 0,
-            isActive: true
-        });
-
-        emit CharityRegistered(charityAddress, block.timestamp);
+    function initializeV2(
+        address[] calldata tokens,
+        TokenConfig[] calldata configs
+    ) external onlyOwner reinitializer(2) {
+        if (tokens.length != configs.length) {
+            revert InvalidAmount(tokens.length, "Token/config length mismatch");
+        }
+        for (uint256 i = 0; i < tokens.length; i++) {
+            _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap);
+        }
     }
 
     /**
-     * @dev Update charity active status
-     * @param charityAddress The address of the charity
-     * @param isActive New active status
+     * @dev Wire the standalone CharityRegistry (set-once). Charity registration /
+     * status is governed directly on the registry (owned by the protocol
+     * timelock); this contract only reads it for validation.
      */
-    function updateCharityStatus(address charityAddress, bool isActive) external onlyOwner {
-        if (!charities[charityAddress].isRegistered) {
-            revert CharityNotRegistered(charityAddress);
-        }
-
-        charities[charityAddress].isActive = isActive;
-        emit CharityStatusUpdated(charityAddress, isActive);
+    function setCharityRegistry(address _charityRegistry) external onlyOwner {
+        require(_charityRegistry != address(0), "Invalid registry address");
+        require(address(charityRegistry) == address(0), "Registry already set");
+        charityRegistry = CharityRegistry(_charityRegistry);
     }
 
     /**
@@ -170,6 +181,57 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     }
 
     /**
+     * @dev Configure (or disable) a token's allowlist + caps. onlyOwner (timelock).
+     * Use address(0) as `token` for the native asset.
+     * Setting enabled=false (or calling with no caps) removes the token from the allowlist.
+     */
+    function setTokenConfig(address token, bool enabled, uint256 perTxCap, uint256 dailyCap) external onlyOwner {
+        _setTokenConfig(token, enabled, perTxCap, dailyCap);
+    }
+
+    function _setTokenConfig(address token, bool enabled, uint256 perTxCap, uint256 dailyCap) internal {
+        if (enabled) {
+            if (perTxCap == 0) {
+                revert InvalidAmount(perTxCap, "Per-tx cap must be > 0");
+            }
+            if (dailyCap < perTxCap) {
+                revert InvalidAmount(dailyCap, "Daily cap must be >= per-tx cap");
+            }
+        }
+        tokenConfigs[token] = TokenConfig({
+            enabled: enabled,
+            perTxCap: perTxCap,
+            dailyCap: dailyCap,
+            dailyWindowStart: 0,
+            dailyVolume: 0
+        });
+        emit TokenConfigUpdated(token, enabled, perTxCap, dailyCap);
+    }
+
+    /**
+     * @dev Enforce allowlist + per-tx + rolling-24h caps on the principal amount.
+     * Must run before any transfer (checks-effects-interactions).
+     */
+    function _checkTokenCaps(address token, uint256 amount) internal {
+        TokenConfig storage cfg = tokenConfigs[token];
+        if (!cfg.enabled) {
+            revert TokenNotAllowed(token);
+        }
+        if (amount > cfg.perTxCap) {
+            revert ExceedsPerTxCap(token, amount, cfg.perTxCap);
+        }
+        if (block.timestamp >= cfg.dailyWindowStart + CAP_WINDOW) {
+            cfg.dailyWindowStart = block.timestamp;
+            cfg.dailyVolume = 0;
+        }
+        uint256 newDailyVolume = cfg.dailyVolume + amount;
+        if (newDailyVolume > cfg.dailyCap) {
+            revert ExceedsDailyCap(token, amount, cfg.dailyVolume, cfg.dailyCap);
+        }
+        cfg.dailyVolume = newDailyVolume;
+    }
+
+    /**
      * @dev Process donation with mandatory platform fee and optional tip
      * @param charity The verified charity receiving the donation
      * @param token The ERC20 token being donated
@@ -182,17 +244,13 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         uint256 charityAmount,
         uint256 platformTip
     ) public nonReentrant whenNotPaused {
-        if (!charities[charity].isRegistered) {
-            revert CharityNotRegistered(charity);
-        }
-
-        if (!charities[charity].isActive) {
-            revert CharityNotActive(charity);
-        }
+        _requireActiveCharity(charity);
 
         if (charityAmount < MINIMUM_DONATION) {
             revert InvalidAmount(charityAmount, "Donation amount too small");
         }
+
+        _checkTokenCaps(token, charityAmount);
 
         // Calculate mandatory platform fee
         uint256 mandatoryFee = (charityAmount * platformFeeRate) / BASIS_POINTS;
@@ -209,7 +267,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         }
 
         // Update tracking (track net amount received by charity)
-        charities[charity].totalReceived += netToCharity;
+        totalReceived[charity] += netToCharity;
         donations[msg.sender][charity] += netToCharity;
 
         // Generate donation ID
@@ -286,13 +344,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         address charity,
         uint256 platformTip
     ) external payable nonReentrant whenNotPaused {
-        if (!charities[charity].isRegistered) {
-            revert CharityNotRegistered(charity);
-        }
-
-        if (!charities[charity].isActive) {
-            revert CharityNotActive(charity);
-        }
+        _requireActiveCharity(charity);
 
         // Gross charity amount is msg.value minus optional tip
         uint256 charityAmount = msg.value - platformTip;
@@ -300,6 +352,8 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         if (charityAmount < MINIMUM_DONATION) {
             revert InvalidAmount(charityAmount, "Donation amount too small");
         }
+
+        _checkTokenCaps(address(0), charityAmount);
 
         // Calculate mandatory platform fee
         uint256 mandatoryFee = (charityAmount * platformFeeRate) / BASIS_POINTS;
@@ -312,7 +366,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         );
 
         // Update tracking BEFORE external calls (checks-effects-interactions pattern)
-        charities[charity].totalReceived += netToCharity;
+        totalReceived[charity] += netToCharity;
         donations[msg.sender][charity] += netToCharity;
 
         // Generate receipt (state update)
@@ -395,16 +449,27 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     function getCharityInfo(address charityAddress) external view returns (
         bool isRegistered,
         address walletAddress,
-        uint256 totalReceived,
+        uint256 totalReceivedAmount,
         bool isActive
     ) {
-        Charity storage charity = charities[charityAddress];
         return (
-            charity.isRegistered,
-            charity.walletAddress,
-            charity.totalReceived,
-            charity.isActive
+            charityRegistry.isRegistered(charityAddress),
+            charityAddress,
+            totalReceived[charityAddress],
+            charityRegistry.isActive(charityAddress)
         );
+    }
+
+    /**
+     * @dev Require that a charity is registered and active (read from the registry).
+     */
+    function _requireActiveCharity(address charity) internal view {
+        if (!charityRegistry.isRegistered(charity)) {
+            revert CharityNotRegistered(charity);
+        }
+        if (!charityRegistry.isActive(charity)) {
+            revert CharityNotActive(charity);
+        }
     }
 
     /**
