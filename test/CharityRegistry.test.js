@@ -20,7 +20,7 @@ describe("CharityRegistry", () => {
       expect(await registry.owner()).to.equal(owner.address);
     });
 
-    it("Should be non-upgradeable (no upgrade entry points)", async () => {
+    it("Should be non-upgradeable (no upgrade entry points)", () => {
       // A standalone contract has no proxy or upgrade API. The absence of a
       // UUPS/transparent proxy surface is structural: there is no
       // upgradeToAndCall / implementation function exposed.
@@ -67,15 +67,15 @@ describe("CharityRegistry", () => {
     });
 
     it("Should batch-register charities idempotently", async () => {
-      const a = ethers.Wallet.createRandom().address;
-      const b = ethers.Wallet.createRandom().address;
-      await registry.registerCharities([a, b]);
-      expect(await registry.isRegistered(a)).to.equal(true);
-      expect(await registry.isRegistered(b)).to.equal(true);
+      const charityA = ethers.Wallet.createRandom().address;
+      const charityB = ethers.Wallet.createRandom().address;
+      await registry.registerCharities([charityA, charityB]);
+      expect(await registry.isRegistered(charityA)).to.equal(true);
+      expect(await registry.isRegistered(charityB)).to.equal(true);
 
       // Re-running with an already-registered + zero address must not revert.
-      await registry.registerCharities([a, ethers.ZeroAddress]);
-      expect(await registry.isRegistered(a)).to.equal(true);
+      await registry.registerCharities([charityA, ethers.ZeroAddress]);
+      expect(await registry.isRegistered(charityA)).to.equal(true);
     });
   });
 
