@@ -43,20 +43,20 @@ describe("TimelockUpgrade", () => {
 
     it("Should reject direct calls to owner-only functions", async () => {
       await expect(
-        donation.connect(owner).registerCharity(owner.address),
+        donation.connect(owner).updateTreasury(owner.address),
       ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
     });
 
     it("Should execute owner-only calls through timelock after delay", async () => {
-      const charityAddr = ethers.Wallet.createRandom().address;
+      const newTreasury = ethers.Wallet.createRandom().address;
       const donationAddr = await donation.getAddress();
 
       // Encode the call
-      const callData = donation.interface.encodeFunctionData("registerCharity", [charityAddr]);
+      const callData = donation.interface.encodeFunctionData("updateTreasury", [newTreasury]);
 
       // Schedule through timelock
       const predecessor = ethers.ZeroHash;
-      const salt = ethers.id("register-charity-1");
+      const salt = ethers.id("update-treasury-1");
 
       await timelock.connect(proposer).schedule(
         donationAddr,
@@ -78,9 +78,8 @@ describe("TimelockUpgrade", () => {
       // Execute
       await timelock.connect(executor).execute(donationAddr, 0, callData, predecessor, salt);
 
-      // Verify charity was registered
-      const info = await donation.getCharityInfo(charityAddr);
-      expect(info.isRegistered).to.equal(true);
+      // Verify treasury was updated
+      expect(await donation.giveProtocolTreasury()).to.equal(newTreasury);
     });
   });
 
@@ -88,14 +87,14 @@ describe("TimelockUpgrade", () => {
     it("Should execute upgrade through timelock after delay", async () => {
       const proxyAddr = await donation.getAddress();
 
-      // Register a charity to verify state preservation
-      const charityAddr = ethers.Wallet.createRandom().address;
-      const registerData = donation.interface.encodeFunctionData("registerCharity", [charityAddr]);
-      const regSalt = ethers.id("register-pre-upgrade");
+      // Update treasury to verify state preservation across the upgrade
+      const newTreasury = ethers.Wallet.createRandom().address;
+      const updateData = donation.interface.encodeFunctionData("updateTreasury", [newTreasury]);
+      const regSalt = ethers.id("update-treasury-pre-upgrade");
 
-      await timelock.connect(proposer).schedule(proxyAddr, 0, registerData, ethers.ZeroHash, regSalt, MIN_DELAY);
+      await timelock.connect(proposer).schedule(proxyAddr, 0, updateData, ethers.ZeroHash, regSalt, MIN_DELAY);
       await time.increase(MIN_DELAY + 1);
-      await timelock.connect(executor).execute(proxyAddr, 0, registerData, ethers.ZeroHash, regSalt);
+      await timelock.connect(executor).execute(proxyAddr, 0, updateData, ethers.ZeroHash, regSalt);
 
       // Deploy new implementation
       const V2 = await ethers.getContractFactory("DurationDonation");
@@ -122,8 +121,7 @@ describe("TimelockUpgrade", () => {
       await timelock.connect(executor).execute(proxyAddr, 0, upgradeData, ethers.ZeroHash, upgradeSalt);
 
       // Verify state preserved after upgrade
-      const info = await donation.getCharityInfo(charityAddr);
-      expect(info.isRegistered).to.equal(true);
+      expect(await donation.giveProtocolTreasury()).to.equal(newTreasury);
 
       // Verify proxy address unchanged
       expect(await donation.getAddress()).to.equal(proxyAddr);
@@ -156,6 +154,51 @@ describe("TimelockUpgrade", () => {
       await expect(
         timelock.connect(executor).execute(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt),
       ).to.emit(donation, "Upgraded").withArgs(v2Addr);
+    });
+
+    it("Should atomically set Stage-1 caps + allowlist via upgradeToAndCall(initializeV2)", async () => {
+      const proxyAddr = await donation.getAddress();
+
+      // Deploy new implementation
+      const V2 = await ethers.getContractFactory("DurationDonation");
+      const v2Impl = await V2.deploy();
+      await v2Impl.waitForDeployment();
+
+      const dummyToken = ethers.Wallet.createRandom().address;
+      const perTxCap = ethers.parseEther("500");
+      const dailyCap = ethers.parseEther("2500");
+
+      // Encode upgradeToAndCall with initializeV2 payload (native + one ERC20)
+      const initData = donation.interface.encodeFunctionData("initializeV2", [
+        [dummyToken, ethers.ZeroAddress],
+        [
+          [true, perTxCap, dailyCap, 0n, 0n],
+          [true, perTxCap, dailyCap, 0n, 0n],
+        ],
+      ]);
+      const upgradeData = donation.interface.encodeFunctionData("upgradeToAndCall", [
+        await v2Impl.getAddress(),
+        initData,
+      ]);
+      const salt = ethers.id("upgrade-v2-initialized");
+
+      await timelock.connect(proposer).schedule(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt, MIN_DELAY);
+      await time.increase(MIN_DELAY + 1);
+      await timelock.connect(executor).execute(proxyAddr, 0, upgradeData, ethers.ZeroHash, salt);
+
+      // Caps + allowlist were applied in the same call
+      const nativeCfg = await donation.tokenConfigs(ethers.ZeroAddress);
+      expect(nativeCfg.enabled).to.equal(true);
+      expect(nativeCfg.perTxCap).to.equal(perTxCap);
+      expect(nativeCfg.dailyCap).to.equal(dailyCap);
+
+      const tokenCfg = await donation.tokenConfigs(dummyToken);
+      expect(tokenCfg.enabled).to.equal(true);
+
+      // Deny-by-default: an unconfigured token is still disabled
+      const otherToken = ethers.Wallet.createRandom().address;
+      const otherCfg = await donation.tokenConfigs(otherToken);
+      expect(otherCfg.enabled).to.equal(false);
     });
   });
 });
