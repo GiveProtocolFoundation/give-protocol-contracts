@@ -176,7 +176,7 @@ User → ERC1967Proxy (permanent address) → Implementation (replaceable)
 ```javascript
 // Verify state preserved
 await donation.giveProtocolTreasury();   // Should match pre-upgrade value
-await donation.platformFeeRate();         // Should be 100 (or current value)
+await donation.platformFeeRate();         // Should be 50 (or current value)
 await donation.getSuggestedTipRates();    // Should return [500, 1000, 2000]
 await donation.owner();                   // Should be timelock address
 // Test a registered charity is still accessible
@@ -186,7 +186,7 @@ await donation.getCharityInfo(KNOWN_CHARITY_ADDRESS);
 ### CharityScheduledDistribution
 ```javascript
 await distribution.treasury();            // Should match pre-upgrade value
-await distribution.platformFeeRate();     // Should be 100 (or current value)
+await distribution.platformFeeRate();     // Should be 50 (or current value)
 await distribution.nextScheduleId();      // Should match pre-upgrade value
 await distribution.owner();               // Should be timelock address
 // Verify an active schedule still exists
@@ -196,7 +196,7 @@ await distribution.donationSchedules(KNOWN_SCHEDULE_ID);
 ### PortfolioFunds
 ```javascript
 await portfolioFunds.treasury();          // Should match pre-upgrade value
-await portfolioFunds.platformFeeRate();   // Should be 100 (or current value)
+await portfolioFunds.platformFeeRate();   // Should be 50 (or current value)
 await portfolioFunds.governanceActive();  // Should match pre-upgrade value
 // Verify roles preserved
 const ADMIN_ROLE = await portfolioFunds.ADMIN_ROLE();

@@ -43,6 +43,7 @@
     "@types/chai": "^4.3.20",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.24",
+    "chai": "^4.5.0",
     "dotenv": "^16.4.7",
     "eth-scribble": "^0.7.10",
     "ethers": "^6.14.0",
@@ -55,7 +56,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@chainlink/contracts": "^1.4.0",
     "@openzeppelin/contracts": "5.4.0",
     "@openzeppelin/contracts-upgradeable": "5.4.0"
   }

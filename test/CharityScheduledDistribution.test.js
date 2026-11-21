@@ -16,9 +16,9 @@ describe("CharityScheduledDistribution", () => {
   const TOTAL_AMOUNT = ethers.parseEther("12.0"); // 12 tokens
   const MONTHLY_AMOUNT = ethers.parseEther("1.0"); // 1 token per month
   const NUM_MONTHS = 12;
-  const FEE_RATE = 100n; // 1% in basis points
+  const FEE_RATE = 50n; // 0.5% in basis points
   const BASIS_POINTS = 10000n;
-  // Net amount after 1% fee: 1.0 - 0.01 = 0.99 ETH
+  // Net amount after 0.5% fee: 1.0 - 0.005 = 0.995 ETH
   const NET_MONTHLY_AMOUNT = MONTHLY_AMOUNT - (MONTHLY_AMOUNT * FEE_RATE) / BASIS_POINTS;
 
   beforeEach(async () => {

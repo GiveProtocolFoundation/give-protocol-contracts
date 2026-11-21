@@ -67,7 +67,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant MINIMUM_DONATION = 1e15; // 0.001 tokens minimum
 
-    // Mandatory platform fee (in basis points, 100 = 1%) — initialized in initialize()
+    // Mandatory platform fee (in basis points, 50 = 0.5%) — initialized in initialize()
     uint256 public platformFeeRate;
     uint256 public constant MAX_FEE_RATE = 500; // Cap at 5%
 
@@ -121,7 +121,8 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         __Pausable_init();
         __UUPSUpgradeable_init();
         giveProtocolTreasury = _giveProtocolTreasury;
-        platformFeeRate = 100;
+        platformFeeRate = 50;
+        assert(platformFeeRate == 50); // Post-deploy assertion: intended 0.5% (50 bps)
         suggestedTipRates.push(500);
         suggestedTipRates.push(1000);
         suggestedTipRates.push(2000);
@@ -169,7 +170,7 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
 
     /**
      * @dev Update platform fee rate
-     * @param newFeeRate New fee rate in basis points (100 = 1%)
+     * @param newFeeRate New fee rate in basis points (50 = 0.5%)
      */
     function updatePlatformFeeRate(uint256 newFeeRate) external onlyOwner {
         if (newFeeRate > MAX_FEE_RATE) {

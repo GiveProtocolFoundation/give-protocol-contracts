@@ -102,9 +102,9 @@ describe("StorageLayout", () => {
       expect(BigInt(raw)).to.equal(3n); // initialized with 3 tip rates
     });
 
-    it("Slot 5: platformFeeRate = 100", async () => {
+    it("Slot 5: platformFeeRate = 50", async () => {
       const raw = await readSlot(proxyAddr, 5);
-      expect(BigInt(raw)).to.equal(100n);
+      expect(BigInt(raw)).to.equal(50n);
     });
 
     it("Slot 6: tokenConfigs mapping — enabled token has populated config", async () => {
@@ -126,7 +126,7 @@ describe("StorageLayout", () => {
       await donation.setTokenConfig(ethers.ZeroAddress, true, ethers.MaxUint256, ethers.MaxUint256);
 
       const gross = ethers.parseEther("1");
-      const expectedNet = gross - (gross * 100n) / 10000n;
+      const expectedNet = gross - (gross * 50n) / 10000n;
       await donation.donateNative(charity.address, 0n, { value: gross });
 
       const slot = mappingSlot(charity.address, 7);
@@ -187,9 +187,9 @@ describe("StorageLayout", () => {
       expect(addr).to.equal(treasury.address);
     });
 
-    it("Slot 5: platformFeeRate = 100", async () => {
+    it("Slot 5: platformFeeRate = 50", async () => {
       const raw = await readSlot(proxyAddr, 5);
-      expect(BigInt(raw)).to.equal(100n);
+      expect(BigInt(raw)).to.equal(50n);
     });
 
     it("Slots 6–55: __gap is zeroed", async () => {
@@ -246,9 +246,9 @@ describe("StorageLayout", () => {
       expect(addr).to.equal(treasury.address);
     });
 
-    it("Slot 6: platformFeeRate = 100", async () => {
+    it("Slot 6: platformFeeRate = 50", async () => {
       const raw = await readSlot(proxyAddr, 6);
-      expect(BigInt(raw)).to.equal(100n);
+      expect(BigInt(raw)).to.equal(50n);
     });
 
     it("Slot 7: governanceActive = false initially", async () => {

@@ -169,7 +169,7 @@ async function main() {
     );
   }
 
-  // Treasury = deployer for testnet (receives the 1% platform fee)
+  // Treasury = deployer for testnet (receives the 0.5% platform fee)
   const treasuryAddress = process.env.MOONBEAM_TREASURY_ADDRESS || deployer.address;
   console.log(`Treasury: ${treasuryAddress}`);
   if (treasuryAddress === deployer.address) {
