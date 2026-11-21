@@ -123,7 +123,8 @@ contract CharityScheduledDistribution is Initializable, OwnableUpgradeable, Reen
         __Pausable_init();
         __UUPSUpgradeable_init();
         treasury = _treasury;
-        platformFeeRate = 100;
+        platformFeeRate = 50;
+        assert(platformFeeRate == 50); // Post-deploy assertion: intended 0.5% (50 bps)
     }
 
     /**
@@ -337,7 +338,7 @@ contract CharityScheduledDistribution is Initializable, OwnableUpgradeable, Reen
 
     /**
      * @dev Update platform fee rate
-     * @param newFeeRate New fee rate in basis points (100 = 1%)
+     * @param newFeeRate New fee rate in basis points (50 = 0.5%)
      */
     function updatePlatformFeeRate(uint256 newFeeRate) external onlyOwner {
         require(newFeeRate <= MAX_FEE_RATE, "Fee rate exceeds maximum");

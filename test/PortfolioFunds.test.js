@@ -13,7 +13,7 @@ describe("PortfolioFunds", () => {
   let donor = null;
   let nonAdmin = null;
 
-  const FEE_RATE = 100n; // 1% in basis points
+  const FEE_RATE = 50n; // 0.5% in basis points
   const BASIS_POINTS = 10000n;
 
   // Helper function to setup charities

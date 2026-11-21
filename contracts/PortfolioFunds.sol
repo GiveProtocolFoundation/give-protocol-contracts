@@ -105,7 +105,8 @@ contract PortfolioFunds is Initializable, ReentrancyGuardUpgradeable, AccessCont
         _grantRole(ADMIN_ROLE, admin);
         _grantRole(GOVERNANCE_ROLE, admin);
         treasury = _treasury;
-        platformFeeRate = 100;
+        platformFeeRate = 50;
+        assert(platformFeeRate == 50); // Post-deploy assertion: intended 0.5% (50 bps)
     }
 
     /**
@@ -180,7 +181,7 @@ contract PortfolioFunds is Initializable, ReentrancyGuardUpgradeable, AccessCont
         // Transfer tokens to contract
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
 
-        // Calculate platform fee (1%)
+        // Calculate platform fee (0.5%)
         uint256 platformFee = (amount * platformFeeRate) / 10000;
         uint256 netAmount = amount - platformFee;
 
@@ -208,7 +209,7 @@ contract PortfolioFunds is Initializable, ReentrancyGuardUpgradeable, AccessCont
         PortfolioFund storage fund = portfolioFunds[fundId];
         require(fund.active, "Fund not active");
 
-        // Calculate platform fee (1%)
+        // Calculate platform fee (0.5%)
         uint256 platformFee = (msg.value * platformFeeRate) / 10000;
         uint256 netAmount = msg.value - platformFee;
 

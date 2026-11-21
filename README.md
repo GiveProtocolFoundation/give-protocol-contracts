@@ -43,22 +43,22 @@ flowchart TD
     B -->|Recurring| D[CharityScheduledDistribution]
     B -->|Portfolio| E[PortfolioFunds]
 
-    C -->|Platform Fee 1%| F[Treasury]
+    C -->|Platform Fee 0.5%| F[Treasury]
     C -->|Optional Tip| F
     C -->|Donation Amount| G[Charity Wallet]
     C -->|Tax Receipt| H[On-Chain Receipt]
 
     D -->|Monthly Distribution| I[DistributionExecutor]
-    I -->|Platform Fee 1%| F
+    I -->|Platform Fee 0.5%| F
     I -->|Monthly Amount| G
 
     E -->|Equal Split| J[Charity Pool]
-    E -->|Platform Fee 1%| F
+    E -->|Platform Fee 0.5%| F
     J -->|Claim| G
 ```
 
 **Platform Fee Structure:**
-- Default platform fee: 1% (100 basis points)
+- Default platform fee: 0.5% (50 basis points)
 - Maximum cap: 5% (500 basis points), enforced on-chain
 - Optional donor tips: 5%, 10%, or 20% suggested tiers
 - All donations (including tips) are tax-deductible; dual-beneficiary receipts are generated on-chain
