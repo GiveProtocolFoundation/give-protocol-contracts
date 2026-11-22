@@ -17,17 +17,20 @@ The contract's own state variables start at sequential slots after the inherited
 | Slot | Variable | Type |
 |------|----------|------|
 | 0 | `giveProtocolTreasury` | `address` |
-| 1 | `charities` | `mapping(address => Charity)` |
+| 1 | `charityRegistry` | `CharityRegistry` |
 | 2 | `donations` | `mapping(address => mapping(address => uint256))` |
 | 3 | `taxReceipts` | `mapping(bytes32 => TaxReceipt)` |
 | 4 | `suggestedTipRates` | `uint256[]` (dynamic array) |
 | 5 | `platformFeeRate` | `uint256` |
-| 6-55 | `__gap` | `uint256[50]` |
+| 6 | `tokenConfigs` | `mapping(address => TokenConfig)` |
+| 7 | `totalReceived` | `mapping(address => uint256)` |
+| 8-55 | `__gap` | `uint256[48]` |
 
 ### Constants (bytecode, no storage slot)
 - `BASIS_POINTS` = 10000
 - `MINIMUM_DONATION` = 1e15
 - `MAX_FEE_RATE` = 500
+- `CAP_WINDOW` = 24 hours
 
 ---
 

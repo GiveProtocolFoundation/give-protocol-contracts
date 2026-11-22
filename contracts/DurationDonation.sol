@@ -143,6 +143,10 @@ contract DurationDonation is Initializable, OwnableUpgradeable, ReentrancyGuardU
         }
         for (uint256 i = 0; i < tokens.length; i++) {
             _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap);
+            TokenConfig storage cfg = tokenConfigs[tokens[i]];
+            assert(cfg.enabled == configs[i].enabled);
+            assert(cfg.perTxCap == configs[i].perTxCap);
+            assert(cfg.dailyCap == configs[i].dailyCap);
         }
     }
 

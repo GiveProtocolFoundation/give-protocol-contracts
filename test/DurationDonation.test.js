@@ -580,6 +580,34 @@ describe("DurationDonation", () => {
           }),
         ).to.be.revertedWithCustomError(donation, "TokenNotAllowed");
       });
+
+      it("Should revert an ERC20 donation after a previously allowlisted token is removed from the allowlist", async () => {
+        // Verify donation succeeds while allowlisted
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            ethers.parseEther("10.0"),
+            0n,
+          ),
+        ).to.emit(donation, "DonationProcessed");
+
+        // Remove token from allowlist
+        await expect(
+          donation.setTokenConfig(await token.getAddress(), false, 0n, 0n),
+        ).to.emit(donation, "TokenConfigUpdated")
+          .withArgs(await token.getAddress(), false, 0n, 0n);
+
+        // Donation with removed token must revert with TokenNotAllowed
+        await expect(
+          donation.connect(donor).processDonation(
+            charity.address,
+            await token.getAddress(),
+            ethers.parseEther("10.0"),
+            0n,
+          ),
+        ).to.be.revertedWithCustomError(donation, "TokenNotAllowed");
+      });
     });
 
     describe("Per-transaction cap", () => {
