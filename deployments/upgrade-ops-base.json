@@ -1,0 +1,29 @@
+{
+  "chain": "base",
+  "ops": {
+    "upgrade-to-v2": {
+      "opId": "0x0d0c8f4f2d8c935fe6e7ce35dd0396e838a95bac1a221ff83313c66383f99b75",
+      "txHash": "0x7600a299a919448d783ac07c57ff38ae2e2b8b16736fcc12e123c358234e6c75",
+      "eta": "2026-11-25T22:09:53.000Z",
+      "blockNumber": 60975089
+    },
+    "wire-charity-registry": {
+      "opId": "0xda2e6a131512b4abf4276944a86e81539e863e5a70be9ed33f59054bd1bb0422",
+      "txHash": "0x72db716b2d8e71480bed12bf573838a09a9cdf36d7e2b54124256b08de11dd28",
+      "eta": "2026-11-25T22:09:57.000Z",
+      "blockNumber": 60975111
+    },
+    "migrate-charities": {
+      "opId": "0x553ca4ded8d2ae9adbef38e8e1e10505ff8b2be582787ec100374fabe037322c",
+      "txHash": "0x9888d9169a33a73fa449aa8967471698dc8907445604325bea34bd8b26007ad8",
+      "eta": "2026-11-25T22:10:02.000Z",
+      "blockNumber": 60975134
+    }
+  },
+  "implementation": "0xFf6D38f7034803A5daBDea876d2C95359b10CBE7",
+  "implementationBytecodeHash": "0x5d658a8b3c3b859b61ee622463e539a471986427807d8c6c41e3513683d4f12b",
+  "deployedAt": "2026-11-22T22:09:26.843Z",
+  "registry": "0xdBFEfE8A8a0e2118093f4ea9296E05C5C2623C84",
+  "registryDeployedAt": "2026-11-22T22:09:37.342Z",
+  "scheduledAt": "2026-11-22T22:09:52.694Z"
+}
