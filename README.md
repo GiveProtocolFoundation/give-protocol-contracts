@@ -67,13 +67,19 @@ flowchart TD
 - Direct donations: 0.001 tokens (1e15 wei)
 - Scheduled donations: $10 USD equivalent per month (validated via on-chain token price)
 
+**Stage-1 Per-Token Caps and Allowlist (`DurationDonation`):**
+- **Deny-by-default allowlist:** Every asset (ERC20 token address, or `address(0)` for native currency) is disabled by default (`tokenConfigs[token].enabled == false`, `perTxCap == 0`, `dailyCap == 0`). Donations in any non-allowlisted or removed token revert with `TokenNotAllowed(token)`.
+- **Per-transaction and rolling-24h caps:** Each enabled token has a per-transaction principal cap (`perTxCap > 0`) and a rolling 24-hour (`CAP_WINDOW = 24 hours`) cumulative principal cap (`dailyCap >= perTxCap`) enforced on `charityAmount` before any token transfer. Donations exceeding these limits revert with `ExceedsPerTxCap(token, amount, cap)` or `ExceedsDailyCap(token, amount, dailyVolume, cap)`.
+- **Governance & atomic initialization (`initializeV2`):** Token configurations are managed by the contract owner (72-hour `TimelockController`) via `setTokenConfig(token, enabled, perTxCap, dailyCap)` or initialized atomically during a UUPS upgrade via `upgradeToAndCall(newImpl, initializeV2(tokens, configs))` (`reinitializer(2)`), which asserts the configured initial values on-chain.
+- **Stage-1 initial values:** Upon deployment (prior to `initializeV2` or `setTokenConfig`), all tokens have `{ enabled: false, perTxCap: 0, dailyCap: 0, dailyWindowStart: 0, dailyVolume: 0 }` (deny-by-default). During the Stage-1 atomic upgrade (`initializeV2`), each allowlisted asset is initialized with `enabled = true` and its chain-specific Stage-1 caps (e.g., `500` token units per transaction / `2,500` token units per 24h rolling window in standard test/reference configurations), while any unconfigured token remains disabled (`enabled = false`).
+
 ## Contracts
 
 ### DurationDonation.sol
 
-Core donation contract for direct giving. Accepts both ERC20 tokens and native currency (ETH/GLMR/DEV). Generates on-chain tax receipts with dual-beneficiary support (charity + platform tip). Includes charity registration, activation management, and pausable operations.
+Core donation contract for direct giving. Accepts both ERC20 tokens and native currency (ETH/GLMR/DEV) subject to the owner-managed per-token allowlist and per-transaction / rolling-24h caps (`tokenConfigs`). Generates on-chain tax receipts with dual-beneficiary support (charity + platform tip). Reads charity registration and active status from `CharityRegistry` and supports pausable operations.
 
-**Key methods:** `processDonation()`, `donateNative()`, `registerCharity()`, `updateCharityStatus()`
+**Key methods:** `processDonation()`, `donateNative()`, `setTokenConfig()`, `initializeV2()`, `setCharityRegistry()`
 
 ### PortfolioFunds.sol
 
