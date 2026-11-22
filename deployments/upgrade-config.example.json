@@ -1,0 +1,20 @@
+{
+  "_readme": "EXAMPLE ONLY — do not use as-is. Shows the per-chain token shape. Caps are TOKEN UNITS (DurationDonation has no price oracle), derived from USD 500/2,500 at a pinned average price. Native address(0) means a different asset per chain (ETH/POL/AVAX), which is why tokens are configured per chain.",
+  "charities": [
+    "0x0000000000000000000000000000000000000000"
+  ],
+  "chains": {
+    "base": {
+      "name": "Base",
+      "chainId": 8453,
+      "proxy": "0x712461A7dFc0bf480023bbCB492F97F7c9d40A54",
+      "timelock": "0xB08DC3A8D3d0a003a8cafC0a8b01ec7D024FDb74",
+      "proposer": "0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81",
+      "executor": "0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81",
+      "verified": false,
+      "tokens": [
+        { "symbol": "WETH", "token": "0x4200000000000000000000000000000000000006", "enabled": true, "perTxCapWei": "206800000000000000", "dailyCapWei": "1034300000000000000", "note": "USD 500/2,500 at ETH $2,416.92" }
+      ]
+    }
+  }
+}
