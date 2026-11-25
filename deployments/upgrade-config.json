@@ -6,7 +6,7 @@
     "sixDecimalStablecoins": "USDC/USDT are DISABLED: MINIMUM_DONATION is a hardcoded 1e15 token units, so 6-decimal donations (e.g. 100e6 = $100) always revert. Needs a per-token minimum in a future V2. USDC/USDT amounts are listed in the runbook for when that lands.",
     "perTokenSemantics": "Caps are per-token: the rolling 24h bucket is separate per token address, so the aggregate daily ceiling on a chain is (number of enabled tokens) x USD 2,500. Currently: Base/Ethereum/Polygon/Avalanche 2 tokens = USD 5,000/day; Arbitrum 3 tokens = USD 7,500/day."
   },
-  "charities": ["0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81"],
+  "charities": [],
   "chains": {
     "base": {
       "name": "Base",

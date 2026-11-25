@@ -17,7 +17,9 @@
       "opId": "0x170118e7b408c63d56493508884621d188e468596c82327b9c74261ab5001ea1",
       "txHash": "0x99add506be252149647e1130d0f1b98dea03b005976fdae15638e0e2bc427f16",
       "eta": "2026-11-25T22:15:04.000Z",
-      "blockNumber": 526630099
+      "blockNumber": 526630099,
+      "cancelledTxHash": "0x16bfefee5440e3480ffb7f29e0aa3f427ee763260c60cc6ce3eb5f4dcb7971c3",
+      "cancelledBlock": 527264422
     }
   },
   "implementation": "0xDb192389636e611A47FaD6d1340eD8cA90Fc1C53",
@@ -25,5 +27,6 @@
   "deployedAt": "2026-11-22T22:14:49.445Z",
   "registry": "0x0523a481bFa8eb2cb80fEaB73586Aa22F484dC59",
   "registryDeployedAt": "2026-11-22T22:14:54.233Z",
-  "scheduledAt": "2026-11-22T22:14:54.885Z"
+  "scheduledAt": "2026-11-22T22:14:54.885Z",
+  "cancelledAt": "2026-11-25T00:06:30.380Z"
 }
