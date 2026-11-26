@@ -514,7 +514,14 @@ async function cmdExecute(config, keys) {
     const rec = loadOps(key);
     for (const op of ops) {
       const known = (await tl.isOperationPending(op.id)) || (await tl.isOperationDone(op.id));
-      if (!known) throw new Error(`${op.name}: op ${op.id} not known to timelock — run schedule first`);
+      if (!known) {
+        const recorded = (rec.ops && rec.ops[op.name]) || {};
+        if (recorded.cancelledTxHash || recorded.cancelledBlock) {
+          console.log(`  ${op.name} cancelled on-chain (tx ${recorded.cancelledTxHash || recorded.cancelledBlock}) — skip`);
+          continue;
+        }
+        throw new Error(`${op.name}: op ${op.id} not known to timelock — run schedule first`);
+      }
       if (await tl.isOperationDone(op.id)) { console.log(`  ${op.name} already executed — skip`); continue; }
       if (!(await tl.isOperationReady(op.id))) {
         const eta = new Date(Number((await tl.getTimestamp(op.id)) * 1000n)).toISOString();
