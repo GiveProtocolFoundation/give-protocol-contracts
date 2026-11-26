@@ -16,8 +16,13 @@ const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
 // Constructor args for non-proxy contracts (must match deploy-universal.cjs)
 function flatConstructorArgs(deployment) {
   const multiSig = deployment.multiSig || process.env.MULTISIG_ADDRESS || "0x0000000000000000000000000000000000000000";
+  const timelock72h = deployment.timelocks?.fundHolding72h || "0x0000000000000000000000000000000000000000";
+  const treasury = deployment.treasury || "0x0000000000000000000000000000000000000000";
+  const registry = deployment.contracts?.CharityRegistry?.address || "0x0000000000000000000000000000000000000000";
   return {
     MockERC20: ["Give Test Token", "GIVE"],
+    CharityRegistry: [timelock72h],
+    DonationV3: [treasury, timelock72h, registry, [], []],
     DistributionExecutor: [deployment.contracts?.CharityScheduledDistribution?.proxy],
     fundHolding72h: [259200, [multiSig], [multiSig], hre.ethers.ZeroAddress],
     recordKeeping24h: [86400, [multiSig], [multiSig], hre.ethers.ZeroAddress],

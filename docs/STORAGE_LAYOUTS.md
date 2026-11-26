@@ -133,8 +133,10 @@ The contract's own state variables start at sequential slots after the inherited
 
 ---
 
-## Not Converted
+## Not Converted (Non-Upgradeable by Design)
 
+- **DonationV3**: Frozen V2 direct donation contract (Board-closed Option A). Non-upgradeable by design (`Ownable`, `ReentrancyGuard`, `Pausable`), points at standalone `CharityRegistry`, and goes to external audit (see [V2_AUDIT_SCOPE.md](V2_AUDIT_SCOPE.md)).
+- **CharityRegistry**: Standalone non-upgradeable charity registry (`MVP-SEC-05`).
 - **DistributionExecutor**: Not upgradeable. Single `immutable` state variable pointing to CharityScheduledDistribution proxy address.
 - **MockERC20**: Test utility, not upgradeable.
 

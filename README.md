@@ -75,6 +75,18 @@ flowchart TD
 
 ## Contracts
 
+### DonationV3.sol (V2 Non-Upgradeable Donation Contract)
+
+Frozen, non-upgradeable V2 direct donation contract (Board-closed Option A, [docs/V2_AUDIT_SCOPE.md](docs/V2_AUDIT_SCOPE.md)). Consumes the standalone `CharityRegistry` (`MVP-SEC-05`), emits the `bytes32 indexed causeId` cause/program identifier in `DonationProcessed` and stores it in on-chain tax receipts (`MVP-DON-04`), enforces the deny-by-default per-token allowlist and Stage-1 per-tx (`$500` / `500` units) and rolling-24h (`$2,500` / `2,500` units) caps (`MVP-SEC-02`), and initializes `platformFeeRate = 50` (0.5%) with an on-chain post-init assertion and post-deploy verification (`MVP-DON-02`).
+
+**Key methods:** `processDonation(charity, token, charityAmount, platformTip, causeId)`, `donateNative(charity, platformTip, causeId)`, `setTokenConfig()`, `setTokenConfigs()`, `setCharityRegistry()`
+
+### CharityRegistry.sol
+
+Standalone, non-upgradeable registry of verified charity addresses (`MVP-SEC-05`) owned by the 72-hour `TimelockController`. Shared across `DurationDonation` and `DonationV3` so deploying new donation contracts never requires re-registering charities.
+
+**Key methods:** `registerCharity()`, `registerCharities()`, `updateCharityStatus()`, `isRegistered()`, `isActive()`
+
 ### DurationDonation.sol
 
 Core donation contract for direct giving. Accepts both ERC20 tokens and native currency (ETH/GLMR/DEV) subject to the owner-managed per-token allowlist and per-transaction / rolling-24h caps (`tokenConfigs`). Generates on-chain tax receipts with dual-beneficiary support (charity + platform tip). Reads charity registration and active status from `CharityRegistry` and supports pausable operations.

@@ -304,6 +304,11 @@ async function main() {
     { initializer: "initialize", kind: "uups" },
   );
   await donation.waitForDeployment();
+  const donationFee = await donation.platformFeeRate();
+  if (donationFee !== 50n) {
+    throw new Error(`Post-deploy assertion failed: DurationDonation platformFeeRate is ${donationFee}, expected 50`);
+  }
+  console.log(`     [ASSERT] DurationDonation.platformFeeRate() == ${donationFee} (50 bps = 0.5%)`);
   const donationProxy = await donation.getAddress();
   const donationImpl = await getImplWithRetry(donationProxy);
   contracts.DurationDonation = { proxy: donationProxy, implementation: donationImpl };
@@ -325,6 +330,27 @@ async function main() {
     async () => (await donation.owner()) === timelocks.fundHolding72h,
   );
   console.log(`     [OK] Ownership transferred to: ${timelocks.fundHolding72h}`);
+
+  // 5b. Deploy DonationV3 (non-upgradeable V2 donation contract, owned by 72h timelock)
+  console.log("\n[5b/10] Deploying DonationV3 (non-upgradeable, wired to CharityRegistry)...");
+  const DonationV3 = await hre.ethers.getContractFactory("DonationV3");
+  const donationV3 = await DonationV3.deploy(
+    treasuryAddress,
+    timelocks.fundHolding72h,
+    contracts.CharityRegistry.address,
+    [],
+    [],
+  );
+  await donationV3.waitForDeployment();
+  const v3Fee = await donationV3.platformFeeRate();
+  if (v3Fee !== 50n) {
+    throw new Error(`Post-deploy assertion failed: DonationV3 platformFeeRate is ${v3Fee}, expected 50`);
+  }
+  console.log(`     [ASSERT] DonationV3.platformFeeRate() == ${v3Fee} (50 bps = 0.5%)`);
+  contracts.DonationV3 = { address: await donationV3.getAddress() };
+  console.log(`[OK] DonationV3: ${contracts.DonationV3.address}`);
+  console.log(`     Owner: ${timelocks.fundHolding72h} (72h timelock)`);
+  console.log(`     CharityRegistry: ${contracts.CharityRegistry.address}`);
 
   // 6. Deploy PortfolioFunds proxy (fund-holding → 72h timelock as admin)
   console.log("\n[6/10] Deploying PortfolioFunds (UUPS proxy)...");
@@ -514,6 +540,7 @@ async function main() {
     console.log(`VITE_${envPrefix}_TOKEN_ADDRESS=${contracts.MockERC20.address}`);
   }
   console.log(`VITE_${envPrefix}_DONATION_ADDRESS=${contracts.DurationDonation.proxy}`);
+  console.log(`VITE_${envPrefix}_DONATION_V3_ADDRESS=${contracts.DonationV3.address}`);
   console.log(`VITE_${envPrefix}_CHARITY_REGISTRY_ADDRESS=${contracts.CharityRegistry.address}`);
   console.log(`VITE_${envPrefix}_PORTFOLIO_ADDRESS=${contracts.PortfolioFunds.proxy}`);
   console.log(`VITE_${envPrefix}_VERIFICATION_ADDRESS=${contracts.VolunteerVerification.proxy}`);
@@ -556,6 +583,14 @@ async function main() {
     ]);
     // Verify CharityRegistry (non-upgradeable, constructor arg = timelock address)
     await verifyContract(contracts.CharityRegistry.address, [timelocks.fundHolding72h]);
+    // Verify DonationV3 (non-upgradeable)
+    await verifyContract(contracts.DonationV3.address, [
+      treasuryAddress,
+      timelocks.fundHolding72h,
+      contracts.CharityRegistry.address,
+      [],
+      [],
+    ]);
     // Verify implementation contracts
     await verifyContract(contracts.DurationDonation.implementation, []);
     await verifyContract(contracts.PortfolioFunds.implementation, []);
