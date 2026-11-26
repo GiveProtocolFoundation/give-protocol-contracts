@@ -25,7 +25,7 @@ describe("live-upgrade.cjs (pure helpers)", () => {
     await timelock.waitForDeployment();
   });
 
-  it("builds a 3-op chain whose calldata matches the contract interface exactly", async () => {
+  it("builds a 3-op chain whose calldata matches the contract interface exactly", () => {
     const dd = new ethers.Interface(DurationDonationArtifact.abi);
     const cr = new ethers.Interface(CharityRegistryArtifact.abi);
 

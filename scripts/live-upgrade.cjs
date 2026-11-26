@@ -335,7 +335,7 @@ async function cmdValidate(config, keys) {
 }
 
 /** Dry-run: print the exact calldata + op ids + predecessor chain without signing. */
-async function cmdPlan(config, keys) {
+function cmdPlan(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
     console.log(`\n=== plan ${cfg.name} ===`);
@@ -681,7 +681,7 @@ function main() {
 }
 
 if (require.main === module) {
-  main().catch((e) => {
+  Promise.resolve(main()).catch((e) => {
     console.error("FAILED:", e.shortMessage || e.message);
     process.exitCode = 1;
   });
