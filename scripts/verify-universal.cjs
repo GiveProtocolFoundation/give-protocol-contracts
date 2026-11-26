@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DEPLOYMENTS_DIR = path.join(__dirname, "..", "deployments");
+const { stage1TokenConfigFor } = require("./stage1-token-config.cjs");
 
 // Constructor args for non-proxy contracts (must match deploy-universal.cjs)
 function flatConstructorArgs(deployment) {
@@ -19,10 +20,14 @@ function flatConstructorArgs(deployment) {
   const timelock72h = deployment.timelocks?.fundHolding72h || "0x0000000000000000000000000000000000000000";
   const treasury = deployment.treasury || "0x0000000000000000000000000000000000000000";
   const registry = deployment.contracts?.CharityRegistry?.address || "0x0000000000000000000000000000000000000000";
+  // DonationV3 receives the same Stage-1 allowlist/config the deploy used.
+  const stage1 = deployment.contracts?.DonationV3
+    ? stage1TokenConfigFor(deployment.network, deployment.contracts?.MockERC20?.address || null)
+    : { tokens: [], configs: [] };
   return {
     MockERC20: ["Give Test Token", "GIVE"],
     CharityRegistry: [timelock72h],
-    DonationV3: [treasury, timelock72h, registry, [], []],
+    DonationV3: [treasury, timelock72h, registry, stage1.tokens, stage1.configs],
     DistributionExecutor: [deployment.contracts?.CharityScheduledDistribution?.proxy],
     fundHolding72h: [259200, [multiSig], [multiSig], hre.ethers.ZeroAddress],
     recordKeeping24h: [86400, [multiSig], [multiSig], hre.ethers.ZeroAddress],

@@ -25,7 +25,7 @@ import "./CharityRegistry.sol";
  *   principal cap (`dailyCap >= perTxCap`, `CAP_WINDOW = 24 hours`) on `charityAmount`
  *   before any transfer (Stage-1 reference: $500/tx, $2,500/24h).
  * - Platform Fee (MVP-DON-02): Hard-set to 50 bps (0.5%) at deployment with an on-chain
- *   post-init `assert(platformFeeRate == 50)` invariant check; bounded by `MAX_FEE_RATE = 500` (5%).
+ *   post-init `require` invariant check; bounded by `MAX_FEE_RATE = 500` (5%).
  * - Cause / Program Identifier (MVP-DON-04): `bytes32 causeId` threaded through donation
  *   entry points and emitted in `DonationProcessed` (`bytes32(0)` for general / unspecified cause).
  */
@@ -136,9 +136,11 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
             emit CharityRegistryWired(_charityRegistry);
         }
 
-        // MVP-DON-02: Hard-set platformFeeRate = 50 (0.5%) and assert post-init
+        // MVP-DON-02: Hard-set platformFeeRate = 50 (0.5%) and check post-init.
+        // `require` (not `assert`) so a hypothetical failure reverts with a reason
+        // instead of consuming all remaining gas.
         platformFeeRate = DEFAULT_FEE_RATE;
-        assert(platformFeeRate == 50);
+        require(platformFeeRate == DEFAULT_FEE_RATE, "Fee invariant");
 
         suggestedTipRates.push(500);
         suggestedTipRates.push(1000);
@@ -151,10 +153,6 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
                 initialConfigs[i].perTxCap,
                 initialConfigs[i].dailyCap
             );
-            TokenConfig storage cfg = tokenConfigs[initialTokens[i]];
-            assert(cfg.enabled == initialConfigs[i].enabled);
-            assert(cfg.perTxCap == initialConfigs[i].perTxCap);
-            assert(cfg.dailyCap == initialConfigs[i].dailyCap);
         }
     }
 
@@ -220,10 +218,6 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         }
         for (uint256 i = 0; i < tokens.length; i++) {
             _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap);
-            TokenConfig storage cfg = tokenConfigs[tokens[i]];
-            assert(cfg.enabled == configs[i].enabled);
-            assert(cfg.perTxCap == configs[i].perTxCap);
-            assert(cfg.dailyCap == configs[i].dailyCap);
         }
     }
 
@@ -263,6 +257,10 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         if (amount > cfg.perTxCap) {
             revert ExceedsPerTxCap(token, amount, cfg.perTxCap);
         }
+        // Rolling 24h window: comparing against block.timestamp is the intended
+        // design (see docs/V2_AUDIT_SCOPE.md "Static-analysis dispositions").
+        // Miner drift is seconds and immaterial to a cumulative principal cap.
+        // slither-disable-next-line timestamp
         if (block.timestamp >= cfg.dailyWindowStart + CAP_WINDOW) {
             cfg.dailyWindowStart = block.timestamp;
             cfg.dailyVolume = 0;
@@ -508,12 +506,16 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
             causeId
         );
 
-        // Transfer net amount to charity (external call AFTER state updates)
+        // Transfer net amount to charity (external call AFTER state updates).
+        // Native value cannot be sent via SafeERC20; the low-level call's success
+        // flag is checked immediately below.
+        // slither-disable-next-line low-level-calls
         (bool charitySuccess, ) = charity.call{value: netToCharity}("");
         require(charitySuccess, "Transfer to charity failed");
 
         // Transfer mandatory fee + optional tip to Give Protocol treasury
         if (totalToTreasury > 0) {
+            // slither-disable-next-line low-level-calls
             (bool treasurySuccess, ) = giveProtocolTreasury.call{value: totalToTreasury}("");
             require(treasurySuccess, "Transfer to treasury failed");
         }

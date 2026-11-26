@@ -79,6 +79,10 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
       expect(await donation.DEFAULT_FEE_RATE()).to.equal(50n);
     });
 
+    it("Should expose MINIMUM_DONATION as 0.001 token units", async () => {
+      expect(await donation.MINIMUM_DONATION()).to.equal(MINIMUM_DONATION);
+    });
+
     it("Should set the correct treasury, owner, and standalone CharityRegistry", async () => {
       expect(await donation.giveProtocolTreasury()).to.equal(treasury.address);
       expect(await donation.owner()).to.equal(owner.address);

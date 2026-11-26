@@ -1,6 +1,7 @@
 const hre = require("hardhat");
 const fs = require("node:fs");
 const path = require("node:path");
+const { stage1TokenConfigFor } = require("./stage1-token-config.cjs");
 
 /**
  * Chain-specific configuration for deployment
@@ -323,6 +324,28 @@ async function main() {
   );
   console.log(`     [OK] CharityRegistry wired: ${contracts.CharityRegistry.address}`);
 
+  // Stage-1 token config: initialize the allowlist + caps while the deployer is
+  // still owner (initializeV2 is onlyOwner), before ownership moves to the timelock.
+  // stage1TokenConfigFor refuses to deploy a chain with no reviewed config — an
+  // empty tokenConfigs is deny-by-default and would accept no donations.
+  console.log("     Initializing Stage-1 token config...");
+  const stage1 = stage1TokenConfigFor(
+    networkName,
+    contracts.MockERC20 ? contracts.MockERC20.address : null,
+  );
+  await sendRoleTx(
+    (o) => donation.initializeV2(stage1.tokens, stage1.configs, o),
+    async () => {
+      const tc = await donation.tokenConfigs(stage1.tokens[0]);
+      return (
+        tc.enabled === stage1.configs[0].enabled &&
+        tc.perTxCap === stage1.configs[0].perTxCap &&
+        tc.dailyCap === stage1.configs[0].dailyCap
+      );
+    },
+  );
+  console.log(`     [OK] Stage-1 token config initialized (${stage1.tokens.length} token(s))`);
+
   // Transfer DurationDonation ownership to 72h timelock
   console.log("     Transferring DurationDonation ownership to timelock...");
   await sendRoleTx(
@@ -338,8 +361,8 @@ async function main() {
     treasuryAddress,
     timelocks.fundHolding72h,
     contracts.CharityRegistry.address,
-    [],
-    [],
+    stage1.tokens,
+    stage1.configs,
   );
   await donationV3.waitForDeployment();
   const v3Fee = await donationV3.platformFeeRate();
@@ -350,6 +373,7 @@ async function main() {
   contracts.DonationV3 = { address: await donationV3.getAddress() };
   console.log(`[OK] DonationV3: ${contracts.DonationV3.address}`);
   console.log(`     Owner: ${timelocks.fundHolding72h} (72h timelock)`);
+  console.log(`     Stage-1 allowlist: ${stage1.tokens.length} token(s)`);
   console.log(`     CharityRegistry: ${contracts.CharityRegistry.address}`);
 
   // 6. Deploy PortfolioFunds proxy (fund-holding → 72h timelock as admin)

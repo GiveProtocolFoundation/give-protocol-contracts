@@ -16,7 +16,7 @@ The V2 audit scope bundles four mandatory MVP requirements into a frozen, self-c
 2. **`contracts/DonationV3.sol` (GIV-1044):** Standalone, non-upgradeable V2 donation contract consuming `CharityRegistry`.
    - **MVP-DON-04 (Cause/Program Identifier):** Threads `bytes32 causeId` through ERC20 and native donation entry points, tax receipts, and emits `causeId` (indexed) in `DonationProcessed`. Backwards-compatible overloads default `causeId` to `bytes32(0)`.
    - **MVP-SEC-02 (Per-Token Allowlist & Caps):** Enforces a deny-by-default token allowlist (`tokenConfigs[token].enabled == false` unless explicitly enabled) alongside a per-transaction principal cap (`perTxCap > 0`) and a rolling 24-hour (`CAP_WINDOW = 24 hours`) cumulative principal cap (`dailyCap >= perTxCap`). Stage-1 reference parameters: `$500` / tx (`500` token units) and `$2,500` / 24h (`2,500` token units).
-   - **MVP-DON-02 (0.5% Platform Fee Invariant):** Hard-sets `platformFeeRate = 50` (50 bps = 0.5%, `DEFAULT_FEE_RATE = 50`) in the constructor with an on-chain `assert(platformFeeRate == 50)` post-init check, and asserts `platformFeeRate() == 50` post-deploy in `scripts/deploy-universal.cjs`.
+   - **MVP-DON-02 (0.5% Platform Fee Invariant):** Hard-sets `platformFeeRate = 50` (50 bps = 0.5%, `DEFAULT_FEE_RATE = 50`) in the constructor with an on-chain `require(platformFeeRate == DEFAULT_FEE_RATE, "Fee invariant")` post-init check, and a post-deploy `platformFeeRate() == 50` check in `scripts/deploy-universal.cjs`.
 
 ---
 
@@ -48,7 +48,7 @@ The V2 audit scope bundles four mandatory MVP requirements into a frozen, self-c
    - For every native donation with `msg.value` and `platformTip <= msg.value`:
      - `charityAmount = msg.value - platformTip`
      - `netToCharity + totalToTreasury == msg.value` (exact conservation; contract holds zero balance after execution).
-   - `platformFeeRate` is initialized to `50` (0.5%) and asserted via `assert(platformFeeRate == 50)` in the constructor, bounded above by `MAX_FEE_RATE = 500` (5%).
+   - `platformFeeRate` is initialized to `50` (0.5%) and checked via `require(platformFeeRate == DEFAULT_FEE_RATE, "Fee invariant")` in the constructor, bounded above by `MAX_FEE_RATE = 500` (5%).
 3. **Deny-by-Default Token Allowlist & Rolling 24h Caps (MVP-SEC-02):**
    - Every token address (including `address(0)` for native currency) defaults to `enabled = false`.
    - `_checkTokenCaps(token, charityAmount)` executes prior to any external token/native transfer (Checks-Effects-Interactions):
@@ -56,6 +56,7 @@ The V2 audit scope bundles four mandatory MVP requirements into a frozen, self-c
      - Reverts with `ExceedsPerTxCap(token, charityAmount, cfg.perTxCap)` if `charityAmount > cfg.perTxCap`.
      - Resets `cfg.dailyWindowStart = block.timestamp` and `cfg.dailyVolume = 0` when `block.timestamp >= cfg.dailyWindowStart + 24 hours`.
      - Reverts with `ExceedsDailyCap(token, charityAmount, cfg.dailyVolume, cfg.dailyCap)` if `cfg.dailyVolume + charityAmount > cfg.dailyCap`.
+   - Deployment (`scripts/deploy-universal.cjs`) initializes the Stage-1 allowlist/caps atomically from `scripts/stage1-token-config.cjs`; a chain without a reviewed config is refused at deploy time, because an unconfigured `tokenConfigs` is deny-by-default and would accept no donations.
 4. **Separated Charity Validation (MVP-SEC-05):**
    - `_requireActiveCharity(charity)` queries `charityRegistry.isRegistered(charity)` and `charityRegistry.isActive(charity)` on the standalone `CharityRegistry`.
    - `charityRegistry` is set either at construction or once via `setCharityRegistry` (`require(address(charityRegistry) == address(0))`) and cannot be repointed afterward.
@@ -68,12 +69,26 @@ The V2 audit scope bundles four mandatory MVP requirements into a frozen, self-c
 
 ---
 
+### Static-analysis dispositions
+
+The following Slither alerts on the frozen scope are accepted and documented for the
+auditor; each is either a false positive or an intentional design choice.
+
+| Alert | Location | Disposition |
+|---|---|---|
+| `timestamp` — rolling 24h window | `DonationV3._checkTokenCaps` | Intentional: the cap is a rolling calendar window; miner drift of seconds is immaterial to a cumulative principal cap. Suppressed with `// slither-disable-next-line timestamp`. |
+| `low-level-calls` — native value transfers | `DonationV3._donateNative` | Intentional: ETH/AVAX/POL cannot be sent via `SafeERC20`; both `call{value:}` return values are checked with `require`. Suppressed with `// slither-disable-next-line low-level-calls`. |
+| `timestamp` notices on constructor / `setTokenConfigs` | `DonationV3` | False positive from the old post-write `assert` checks; those checks were removed (config writes are validated in `_setTokenConfig`). |
+
+---
+
 ## 4. Verification & Test Suite
 
 - **Unit & Invariant Tests:** `test/DonationV3.test.js` covers:
   - Non-upgradeability surface check (`upgradeToAndCall`, `initialize`, `proxiableUUID` absent).
-  - Constructor initialization, `platformFeeRate == 50` assertion, and deferred set-once `CharityRegistry` wiring.
+  - Constructor initialization, `platformFeeRate == 50` invariant check (`MINIMUM_DONATION` exposed and tested), and deferred set-once `CharityRegistry` wiring.
   - `causeId` emission across ERC20 (`processDonation`, `processDonationWithPercentageTip`, `processDonationWithSuggestedTip`) and native (`donateNative`) paths, plus backwards-compatible `bytes32(0)` overloads.
   - Standalone `CharityRegistry` consumption and multi-instance registry sharing without re-registering charities.
   - Deny-by-default token allowlist, Stage-1 per-tx cap (`500` units), rolling-24h daily cap (`2,500` units), window expiry reset, batch config updates, and pause/unpause controls.
+- **Deploy-config Tests:** `test/Stage1TokenConfig.test.js` verifies the Stage-1 resolver, the `MOCK` resolution, the "refuse to deploy unconfigured chain" guard, and the per-chain cap values used by `deploy-universal.cjs`.
 - **Registry Tests:** `test/CharityRegistry.test.js` verifies standalone registry deployment, registration, batch migration, status updates, and ownership transfer.
