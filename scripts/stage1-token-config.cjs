@@ -60,7 +60,8 @@ function stage1TokenConfigFor(networkName, mockTokenAddress) {
   if (!entries || entries.length === 0) {
     throw new Error(
       `No Stage-1 token config for ${networkName} — refusing to deploy. ` +
-        `A deny-by-default tokenConfigs would accept no donations. Add an entry to STAGE1_TOKEN_CONFIGS in scripts/stage1-token-config.cjs.`,
+        "A deny-by-default tokenConfigs would accept no donations. " +
+        "Add an entry to STAGE1_TOKEN_CONFIGS in scripts/stage1-token-config.cjs.",
     );
   }
   const tokens = [];
@@ -74,7 +75,7 @@ function stage1TokenConfigFor(networkName, mockTokenAddress) {
     }
     tokens.push(token);
     configs.push({
-      enabled: !!t.enabled,
+      enabled: Boolean(t.enabled),
       perTxCap: BigInt(t.perTxCapWei),
       dailyCap: BigInt(t.dailyCapWei),
       dailyWindowStart: 0n,
