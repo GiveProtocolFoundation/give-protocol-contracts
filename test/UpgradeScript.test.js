@@ -75,7 +75,6 @@ describe("live-upgrade.cjs (pure helpers)", () => {
   });
 
   it("derives operation ids that match TimelockController.hashOperation", async () => {
-    const dd = new ethers.Interface(DurationDonationArtifact.abi);
     const proxy = ethers.Wallet.createRandom().address;
     const impl = ethers.Wallet.createRandom().address;
     const registry = ethers.Wallet.createRandom().address;
@@ -94,7 +93,6 @@ describe("live-upgrade.cjs (pure helpers)", () => {
   });
 
   it("rejects an out-of-order or non-chained predecessor chain", () => {
-    const dd = new ethers.Interface(DurationDonationArtifact.abi);
     const proxy = ethers.Wallet.createRandom().address;
     const impl = ethers.Wallet.createRandom().address;
     const registry = ethers.Wallet.createRandom().address;

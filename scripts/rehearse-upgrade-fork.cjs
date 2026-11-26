@@ -42,6 +42,7 @@ async function readImplSlot(provider, proxy) {
   return raw && raw !== ethers.ZeroHash ? ethers.getAddress(`0x${raw.slice(26)}`) : null;
 }
 
+/** Rehearse the full upgrade + registry migration against a mainnet fork. */
 async function main() {
   const config = loadConfig();
   const cfg = config.chains[CHAIN];
