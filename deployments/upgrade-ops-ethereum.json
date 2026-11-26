@@ -5,13 +5,17 @@
       "opId": "0x96a6d5ae639aacb9a379e6ff9cb026dd7cac0c1ce8f78e043b36911f7f9711c5",
       "txHash": "0x58bfe465998acae5bf5a515d0bc3a53ca2de1d49b39aaa65409ee7150f1e7148",
       "eta": "2026-11-25T22:13:59.000Z",
-      "blockNumber": 26473577
+      "blockNumber": 26473577,
+      "executedTxHash": "0x41670d71259a0f276d50683798ab8145ca2509c896c932a9780f0e146106a220",
+      "executedBlock": 26496407
     },
     "wire-charity-registry": {
       "opId": "0x80f1f8d4ba5b1895475aae889e5710b6a5b37102536cd7e1e109ded43133f360",
       "txHash": "0x62e438130bbccf138b182c39fd75469818916b51bbe3a6277434e2ebe82976b1",
       "eta": "2026-11-25T22:14:23.000Z",
-      "blockNumber": 26473579
+      "blockNumber": 26473579,
+      "executedTxHash": "0x4971f42f199c7fd5fc568552defed60d6283ec879005c921726d5e931dc8ed69",
+      "executedBlock": 26496408
     },
     "migrate-charities": {
       "opId": "0x91773cfed33850ff432b64c1fa8e8f8d66aa2f15aa3cac48e3a90f0cd1fb13b1",
