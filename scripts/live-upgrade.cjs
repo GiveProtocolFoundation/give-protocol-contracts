@@ -198,7 +198,7 @@ function requireVerified(cfg) {
     throw new Error(
       `${cfg.name}: not marked verified (verified:true) in upgrade-config.json. ` +
         `Run \`node scripts/live-upgrade.cjs validate ${cfg.name}\`, confirm the addresses ` +
-        `and that you control the signer key, then set verified:true.`,
+        "and that you control the signer key, then set verified:true.",
     );
   }
 }
@@ -274,13 +274,13 @@ async function cmdStatus(config, keys) {
         const reg = await dd.charityRegistry();
         console.log(`  registry     ${reg === ethers.ZeroAddress ? "(not set)" : reg}`);
       } catch (e) {
-        console.log(`  registry     (function absent → old V1 impl, as expected pre-upgrade)`);
+        console.log("  registry     (function absent → old V1 impl, as expected pre-upgrade)");
       }
       try {
         const tc = await dd.tokenConfigs(ethers.ZeroAddress);
         console.log(`  tokenConfigs(address(0))  enabled=${tc.enabled} perTxCap=${tc.perTxCap} dailyCap=${tc.dailyCap} ${tc.enabled ? "[caps LIVE]" : "[deny-by-default]"}`);
       } catch (e) {
-        console.log(`  tokenConfigs(address(0))  (function absent → caps not live)`);
+        console.log("  tokenConfigs(address(0))  (function absent → caps not live)");
       }
       const ops = buildOpsForChain(key);
       for (const op of ops) {
@@ -347,7 +347,7 @@ async function cmdPlan(config, keys) {
     if (!charities.length) console.log("  [WARN] charity list is EMPTY — schedule will refuse (supply the vetted set)");
 
     const configs = tokens.map((t) => ({
-      enabled: !!t.enabled,
+      enabled: Boolean(t.enabled),
       perTxCap: BigInt(t.perTxCapWei),
       dailyCap: BigInt(t.dailyCapWei),
       dailyWindowStart: 0n,
@@ -574,7 +574,7 @@ async function cmdVerify(config, keys) {
     try {
       for (const t of tokens) {
         const onChain = await dd.tokenConfigs(t.token);
-        const wantEnabled = !!t.enabled;
+        const wantEnabled = Boolean(t.enabled);
         if (t.token.toLowerCase() === ethers.ZeroAddress.toLowerCase()) nativeExpectEnabled = wantEnabled;
         const match =
           onChain.enabled === wantEnabled &&
