@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * live-upgrade.cjs — DurationDonation V1 → V2 live upgrade + CharityRegistry
  * migration for the 5 mainnet proxies, executed through each chain's 72h
@@ -147,6 +146,7 @@ function buildOps({ chain, proxy, registry, impl, tokens, configs, charities }) 
 // Config / ops-record IO
 // ---------------------------------------------------------------------------
 
+/** Load the per-chain upgrade config from disk. */
 function loadConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
 }
@@ -161,23 +161,30 @@ function chainCharities(cfg, config) {
   return cfg.charities || config.charities || [];
 }
 
+/** Absolute path of the ops record JSON for a chain. */
 function opsFile(chain) {
   return path.join(ROOT, "deployments", `upgrade-ops-${chain}.json`);
 }
 
+/** Load a chain's ops record, or an empty one if none exists yet. */
 function loadOps(chain) {
-  const f = opsFile(chain);
-  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : { chain, ops: {} };
+  const file = opsFile(chain);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { chain, ops: {} };
 }
 
+/** Persist a chain's ops record (timelock op ids, tx hashes, addresses). */
 function saveOps(chain, record) {
   fs.writeFileSync(opsFile(chain), JSON.stringify(record, null, 2));
 }
 
+/** All configured chain keys. */
 function chainKeys(config) {
   return Object.keys(config.chains);
 }
 
+/**
+ * Resolve the list of chain keys to operate on from argv (one chain, or all).
+ */
 function chainArg(config, argv) {
   const explicit = argv[3];
   if (explicit && config.chains[explicit]) return [explicit];
@@ -185,14 +192,17 @@ function chainArg(config, argv) {
   return chainKeys(config);
 }
 
+/** Construct an ethers provider for a chain, preferring its env RPC URL. */
 function providerFor(cfg) {
   const url = process.env[cfg.rpcEnv] || cfg.defaultRpc;
   if (!url) throw new Error(`No RPC for chain ${cfg.name} (env ${cfg.rpcEnv} or defaultRpc)`);
   return new ethers.JsonRpcProvider(url, cfg.chainId, { staticNetwork: true });
 }
 
-/** Mutation gate: refuse to spend gas / mutate live state until the operator has
- * reviewed `validate` and marked the chain verified in the config. */
+/**
+ * Mutation gate: refuse to spend gas / mutate live state until the operator has
+ * reviewed `validate` and marked the chain verified in the config.
+ */
 function requireVerified(cfg) {
   if (cfg.verified !== true) {
     throw new Error(
@@ -203,7 +213,9 @@ function requireVerified(cfg) {
   }
 }
 
-/** Load and strictly check a signer against the expected address + role. */
+/**
+ * Load and strictly check a signer against the expected address + role.
+ */
 function signerFor(cfg, expectedAddr, what) {
   const pk = process.env[cfg.pkEnv] || process.env.PRIVATE_KEY;
   if (!pk) throw new Error(`No key for ${cfg.name} (env ${cfg.pkEnv} or PRIVATE_KEY)`);
@@ -217,23 +229,6 @@ function signerFor(cfg, expectedAddr, what) {
   return wallet;
 }
 
-// ---------------------------------------------------------------------------
-// Chain contract handles
-// ---------------------------------------------------------------------------
-
-function handles(cfg, provider) {
-  const tl = new ethers.Contract(
-    cfg.timelock,
-    ARTIFACTS.TimelockController.abi,
-    provider,
-  );
-  const dd = new ethers.Contract(cfg.proxy, ARTIFACTS.DurationDonation.abi, provider);
-  const cr = cfg.registry
-    ? new ethers.Contract(cfg.registry, ARTIFACTS.CharityRegistry.abi, provider)
-    : null;
-  return { tl, dd, cr };
-}
-
 /** Read the EIP-1967 implementation slot (returns checksummed address or null). */
 async function readImplSlot(provider, proxy) {
   const raw = await provider.getStorage(proxy, EIP1967_IMPL_SLOT);
@@ -241,10 +236,17 @@ async function readImplSlot(provider, proxy) {
   return ethers.getAddress(`0x${raw.slice(26)}`);
 }
 
+/** Emit a pass/fail line and fold the result into the accumulator object. */
+function recordCheck(state, label, pass, detail) {
+  console.log(`  ${pass ? "[OK]" : "[FAIL]"} ${label}${detail ? ` — ${detail}` : ""}`);
+  if (!pass) state.ok = false;
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
+/** Read-only: print each chain's proxy, timelock, roles, impl slot and op state. */
 async function cmdStatus(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -273,13 +275,13 @@ async function cmdStatus(config, keys) {
       try {
         const reg = await dd.charityRegistry();
         console.log(`  registry     ${reg === ethers.ZeroAddress ? "(not set)" : reg}`);
-      } catch (e) {
+      } catch {
         console.log("  registry     (function absent → old V1 impl, as expected pre-upgrade)");
       }
       try {
         const tc = await dd.tokenConfigs(ethers.ZeroAddress);
         console.log(`  tokenConfigs(address(0))  enabled=${tc.enabled} perTxCap=${tc.perTxCap} dailyCap=${tc.dailyCap} ${tc.enabled ? "[caps LIVE]" : "[deny-by-default]"}`);
-      } catch (e) {
+      } catch {
         console.log("  tokenConfigs(address(0))  (function absent → caps not live)");
       }
       const ops = buildOpsForChain(key);
@@ -297,6 +299,7 @@ async function cmdStatus(config, keys) {
   }
 }
 
+/** Read-only: assert live state (owner, impl slot, minDelay, roles) and report problems. */
 async function cmdValidate(config, keys) {
   let failed = false;
   for (const key of keys) {
@@ -331,6 +334,7 @@ async function cmdValidate(config, keys) {
   if (failed) process.exitCode = 1;
 }
 
+/** Dry-run: print the exact calldata + op ids + predecessor chain without signing. */
 async function cmdPlan(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -373,7 +377,11 @@ async function cmdPlan(config, keys) {
   }
 }
 
-/** Resolve ops using the current config + ops record (used by status/plan/schedule/execute/verify). */
+/**
+ * Resolve the three chained ops using the current config + ops record
+ * (used by status/plan/schedule/execute/verify). Returns [] until impl and
+ * registry addresses are recorded.
+ */
 function buildOpsForChain(key, config = loadConfig()) {
   const cfg = config.chains[key];
   const rec = loadOps(key);
@@ -382,7 +390,7 @@ function buildOpsForChain(key, config = loadConfig()) {
   if (!impl || !registry) return [];
   const tokens = chainTokens(cfg, config);
   const configs = tokens.map((t) => ({
-    enabled: !!t.enabled,
+    enabled: Boolean(t.enabled),
     perTxCap: BigInt(t.perTxCapWei),
     dailyCap: BigInt(t.dailyCapWei),
     dailyWindowStart: 0n,
@@ -399,6 +407,7 @@ function buildOpsForChain(key, config = loadConfig()) {
   });
 }
 
+/** Deploy the V2 DurationDonation implementation for a chain and record its address. */
 async function cmdDeployImpl(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -427,6 +436,7 @@ async function cmdDeployImpl(config, keys) {
   }
 }
 
+/** Deploy the standalone CharityRegistry (owned by the 72h timelock) and record it. */
 async function cmdDeployRegistry(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -455,6 +465,7 @@ async function cmdDeployRegistry(config, keys) {
   }
 }
 
+/** Schedule the three chained ops via the timelock (signer = proposer). */
 async function cmdSchedule(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -498,6 +509,7 @@ async function cmdSchedule(config, keys) {
   }
 }
 
+/** Execute ready ops in order (signer = executor), skipping done or cancelled ops. */
 async function cmdExecute(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -515,7 +527,7 @@ async function cmdExecute(config, keys) {
     for (const op of ops) {
       const known = (await tl.isOperationPending(op.id)) || (await tl.isOperationDone(op.id));
       if (!known) {
-        const recorded = (rec.ops && rec.ops[op.name]) || {};
+        const recorded = rec.ops?.[op.name] || {};
         if (recorded.cancelledTxHash || recorded.cancelledBlock) {
           console.log(`  ${op.name} cancelled on-chain (tx ${recorded.cancelledTxHash || recorded.cancelledBlock}) — skip`);
           continue;
@@ -540,6 +552,82 @@ async function cmdExecute(config, keys) {
   }
 }
 
+/**
+ * Read the wired CharityRegistry from the proxy, recording the outcome.
+ * Returns the registry address, or null if absent/not yet applied.
+ */
+async function readRegistry(dd, state) {
+  try {
+    const reg = await dd.charityRegistry();
+    recordCheck(state, "charityRegistry wired", reg !== ethers.ZeroAddress, reg);
+    return reg;
+  } catch {
+    recordCheck(state, "charityRegistry wired", false, "function absent (upgrade not applied?)");
+    return null;
+  }
+}
+
+/**
+ * Verify each configured token's on-chain config matches and that unlisted
+ * tokens stay denied. Returns whether the native token was enabled.
+ */
+async function verifyTokenConfigs(dd, tokens, state) {
+  let nativeExpectEnabled = false;
+  try {
+    for (const t of tokens) {
+      const onChain = await dd.tokenConfigs(t.token);
+      const wantEnabled = Boolean(t.enabled);
+      if (t.token.toLowerCase() === ethers.ZeroAddress.toLowerCase()) nativeExpectEnabled = wantEnabled;
+      const match =
+        onChain.enabled === wantEnabled &&
+        (!wantEnabled ||
+          (onChain.perTxCap === BigInt(t.perTxCapWei) && onChain.dailyCap === BigInt(t.dailyCapWei)));
+      recordCheck(
+        state,
+        `tokenConfigs(${t.symbol || t.token})`,
+        match,
+        `enabled=${onChain.enabled}/${wantEnabled} perTx=${onChain.perTxCap}/${t.perTxCapWei} daily=${onChain.dailyCap}/${t.dailyCapWei}`,
+      );
+    }
+    const unconfigured = ethers.Wallet.createRandom().address;
+    recordCheck(state, "deny-by-default (unlisted token disabled)", (await dd.tokenConfigs(unconfigured)).enabled === false);
+  } catch (e) {
+    recordCheck(state, "tokenConfigs readable", false, e.shortMessage || e.message);
+  }
+  return nativeExpectEnabled;
+}
+
+/**
+ * Simulate a native donation and confirm the allowlist gate behaves as configured.
+ */
+async function verifyDonationGate(cfg, dd, provider, reg, charities, nativeExpectEnabled, state) {
+  if (!charities.length || !reg || reg === ethers.ZeroAddress) {
+    console.log("  [SKIP] donation simulation — no charity list recorded");
+    return;
+  }
+  try {
+    const cr = new ethers.Contract(reg, ARTIFACTS.CharityRegistry.abi, provider);
+    const info = await cr.getCharityInfo(charities[0]);
+    recordCheck(state, "first charity registered+active", info.isRegistered_ && info.isActive_, charities[0]);
+    const data = dd.interface.encodeFunctionData("donateNative", [charities[0], 0n]);
+    try {
+      await provider.call({ from: cfg.proposer || ethers.ZeroAddress, to: cfg.proxy, data, value: DONATION_SIMULATION_WEI });
+      recordCheck(
+        state,
+        "native donation simulation",
+        nativeExpectEnabled,
+        nativeExpectEnabled ? "succeeded" : "unexpectedly succeeded while native is not allowlisted",
+      );
+    } catch (e) {
+      if (nativeExpectEnabled) recordCheck(state, "native donation simulation", false, e.shortMessage || e.message);
+      else recordCheck(state, "native donation blocked by allowlist (expected)", true, e.shortMessage || "reverted");
+    }
+  } catch (e) {
+    recordCheck(state, "donation simulation", false, e.shortMessage || e.message);
+  }
+}
+
+/** Verify post-upgrade state: impl slot, registry, token configs, deny-by-default. */
 async function cmdVerify(config, keys) {
   for (const key of keys) {
     const cfg = config.chains[key];
@@ -549,77 +637,22 @@ async function cmdVerify(config, keys) {
     const rec = loadOps(key);
     const impl = rec.implementation || cfg.implementation;
     const registry = rec.registry || cfg.registry;
-    let ok = true;
-    const check = (label, pass, detail) => {
-      console.log(`  ${pass ? "[OK]" : "[FAIL]"} ${label}${detail ? ` — ${detail}` : ""}`);
-      if (!pass) ok = false;
-    };
+    const state = { ok: true };
 
     const onChainImpl = await readImplSlot(provider, cfg.proxy);
-    check("impl slot == deployed impl", onChainImpl && impl && onChainImpl.toLowerCase() === impl.toLowerCase(), `slot=${onChainImpl} expected=${impl}`);
+    recordCheck(state, "impl slot == deployed impl", Boolean(onChainImpl && impl && onChainImpl.toLowerCase() === impl.toLowerCase()), `slot=${onChainImpl} expected=${impl}`);
 
-    let reg = null;
-    try {
-      reg = await dd.charityRegistry();
-      check("charityRegistry wired", reg !== ethers.ZeroAddress, reg);
-    } catch (e) {
-      check("charityRegistry wired", false, "function absent (upgrade not applied?)");
-    }
-    if (reg && registry) check("charityRegistry == deployed registry", reg.toLowerCase() === registry.toLowerCase(), reg);
+    const reg = await readRegistry(dd, state);
+    if (reg && registry) recordCheck(state, "charityRegistry == deployed registry", reg.toLowerCase() === registry.toLowerCase(), reg);
 
-    // Token config: every configured token must match on-chain; unlisted tokens
-    // must stay denied (deny-by-default).
     const tokens = chainTokens(cfg, config);
-    let nativeExpectEnabled = false;
-    try {
-      for (const t of tokens) {
-        const onChain = await dd.tokenConfigs(t.token);
-        const wantEnabled = Boolean(t.enabled);
-        if (t.token.toLowerCase() === ethers.ZeroAddress.toLowerCase()) nativeExpectEnabled = wantEnabled;
-        const match =
-          onChain.enabled === wantEnabled &&
-          (!wantEnabled ||
-            (onChain.perTxCap === BigInt(t.perTxCapWei) && onChain.dailyCap === BigInt(t.dailyCapWei)));
-        check(
-          `tokenConfigs(${t.symbol || t.token})`,
-          match,
-          `enabled=${onChain.enabled}/${wantEnabled} perTx=${onChain.perTxCap}/${t.perTxCapWei} daily=${onChain.dailyCap}/${t.dailyCapWei}`,
-        );
-      }
-      const unconfigured = ethers.Wallet.createRandom().address;
-      check("deny-by-default (unlisted token disabled)", (await dd.tokenConfigs(unconfigured)).enabled === false);
-    } catch (e) {
-      check("tokenConfigs readable", false, e.shortMessage || e.message);
-    }
+    const nativeExpectEnabled = await verifyTokenConfigs(dd, tokens, state);
 
-    // Donation simulation: prove the allowlist gate behaves as configured.
     const charities = chainCharities(cfg, config);
-    if (charities.length && reg && reg !== ethers.ZeroAddress) {
-      try {
-        const cr = new ethers.Contract(reg, ARTIFACTS.CharityRegistry.abi, provider);
-        const info = await cr.getCharityInfo(charities[0]);
-        check("first charity registered+active", info.isRegistered_ && info.isActive_, charities[0]);
-        const data = dd.interface.encodeFunctionData("donateNative", [charities[0], 0n]);
-        try {
-          await provider.call({ from: cfg.proposer || ethers.ZeroAddress, to: cfg.proxy, data, value: DONATION_SIMULATION_WEI });
-          check(
-            "native donation simulation",
-            nativeExpectEnabled,
-            nativeExpectEnabled ? "succeeded" : "unexpectedly succeeded while native is not allowlisted",
-          );
-        } catch (e) {
-          if (nativeExpectEnabled) check("native donation simulation", false, e.shortMessage || e.message);
-          else check("native donation blocked by allowlist (expected)", true, e.shortMessage || "reverted");
-        }
-      } catch (e) {
-        check("donation simulation", false, e.shortMessage || e.message);
-      }
-    } else {
-      console.log("  [SKIP] donation simulation — no charity list recorded");
-    }
+    await verifyDonationGate(cfg, dd, provider, reg, charities, nativeExpectEnabled, state);
 
-    console.log(ok ? "  VERIFY_COMPLETE" : "  VERIFY_FAILED");
-    if (!ok) process.exitCode = 1;
+    console.log(state.ok ? "  VERIFY_COMPLETE" : "  VERIFY_FAILED");
+    if (!state.ok) process.exitCode = 1;
   }
 }
 
@@ -627,7 +660,8 @@ async function cmdVerify(config, keys) {
 // Entrypoint
 // ---------------------------------------------------------------------------
 
-async function main() {
+/** Dispatch the requested command against the resolved chain keys. */
+function main() {
   const argv = process.argv;
   const command = argv[2] || "status";
   const config = loadConfig();
@@ -647,12 +681,10 @@ async function main() {
 }
 
 if (require.main === module) {
-  main()
-    .then(() => process.exit(0))
-    .catch((e) => {
-      console.error("FAILED:", e.shortMessage || e.message);
-      process.exit(1);
-    });
+  main().catch((e) => {
+    console.error("FAILED:", e.shortMessage || e.message);
+    process.exitCode = 1;
+  });
 }
 
 module.exports = {

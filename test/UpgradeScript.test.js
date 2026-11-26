@@ -15,8 +15,8 @@ const DurationDonationArtifact = require("../artifacts/contracts/DurationDonatio
 const CharityRegistryArtifact = require("../artifacts/contracts/CharityRegistry.sol/CharityRegistry.json");
 
 describe("live-upgrade.cjs (pure helpers)", () => {
-  let timelock;
-  let proposer;
+  let timelock = null;
+  let proposer = null;
 
   beforeEach(async () => {
     [proposer] = await ethers.getSigners();

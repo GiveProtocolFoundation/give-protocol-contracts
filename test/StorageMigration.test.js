@@ -11,9 +11,18 @@ const { buildOps } = require("../scripts/live-upgrade.cjs");
  * V1 implementation (contracts/legacy/DurationDonationV1.sol).
  */
 describe("StorageMigration (V1 -> V2)", () => {
-  let v1, registry, v2Impl;
-  let proxyAddr, timelock, owner, treasury, donor, proposer, executor;
-  let charity1, charity2;
+  let v1 = null;
+  let registry = null;
+  let v2Impl = null;
+  let proxyAddr = null;
+  let timelock = null;
+  let owner = null;
+  let treasury = null;
+  let donor = null;
+  let proposer = null;
+  let executor = null;
+  let charity1 = null;
+  let charity2 = null;
 
   const MIN_DELAY = 3600; // 1h for test speed
 

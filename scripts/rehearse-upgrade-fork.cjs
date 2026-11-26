@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * rehearse-upgrade-fork.cjs — dry-run rehearsal of the V1 → V2 DurationDonation
  * upgrade + CharityRegistry migration against a FORK of a live mainnet.
@@ -36,6 +35,7 @@ const V1_ABI = [
   "function charities(address) view returns (bool isRegistered, address walletAddress, uint256 totalReceived, bool isActive)",
 ];
 
+/** Read the EIP-1967 implementation slot (returns checksummed address or null). */
 async function readImplSlot(provider, proxy) {
   const slot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
   const raw = await provider.getStorage(proxy, slot);
@@ -152,5 +152,5 @@ async function main() {
 main().catch((e) => {
   console.error("REHEARSAL FAILED:", e.shortMessage || e.message);
   if (e.stack) console.error(e.stack.split("\n").slice(0, 6).join("\n"));
-  process.exit(1);
+  process.exitCode = 1;
 });
