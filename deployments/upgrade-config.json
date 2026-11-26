@@ -1,0 +1,108 @@
+{
+  "_readme": "Live-upgrade config for scripts/live-upgrade.cjs. Chain addresses for all five live chains were verified read-only on 2026-11-17 (owner()==timelock, minDelay==72h, proposer/executor roles, platformFeeRate()==100, V1 implementation slot). `charities` is INTENTIONALLY EMPTY — fill it with your real payout addresses; do NOT copy the placeholder 0x1111… set. `verified` stays false until you confirm the addresses/keys; flip it to true to let the mutating commands sign.",
+  "_capBasis": "Stage-1 caps USD 500/tx and USD 2,500/24h converted to token units at 90-day average USD prices (CoinGecko daily samples): ETH $2,416.92, POL $0.0981, AVAX $8.868, ARB $0.164. Caps are stored in TOKEN UNITS because DurationDonation has no price oracle. Values are truncated (round down) to be conservative; at current spot they are worth ~$370-420, i.e. tighter than a full $500. Recalibrate quarterly via the timelocked setTokenConfig op.",
+  "_policy": {
+    "nativeTokens": "Native address(0) is DISABLED: the webapp donation hook throws for native tokens (src/hooks/web3/useDonation.ts), so enabling it only widens the cap surface. Flip enabled:true if direct native callers must be supported.",
+    "sixDecimalStablecoins": "USDC/USDT are DISABLED: MINIMUM_DONATION is a hardcoded 1e15 token units, so 6-decimal donations (e.g. 100e6 = $100) always revert. Needs a per-token minimum in a future V2. USDC/USDT amounts are listed in the runbook for when that lands.",
+    "perTokenSemantics": "Caps are per-token: the rolling 24h bucket is separate per token address, so the aggregate daily ceiling on a chain is (number of enabled tokens) x USD 2,500. Currently: Base/Ethereum/Polygon/Avalanche 2 tokens = USD 5,000/day; Arbitrum 3 tokens = USD 7,500/day."
+  },
+  "charities": [],
+  "chains": {
+    "base": {
+      "name": "Base",
+      "chainId": 8453,
+      "proxy": "0x712461A7dFc0bf480023bbCB492F97F7c9d40A54",
+      "timelock": "0xB08DC3A8D3d0a003a8cafC0a8b01ec7D024FDb74",
+      "proposer": "0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81",
+      "executor": "0x47bC8683b0D86296Cd596BfD2c670C0eD6D2De81",
+      "registry": null,
+      "implementation": null,
+      "verified": true,
+      "technicallyVerified": "2026-11-17 read-only probe: owner==timelock, minDelay=259200, proposer/executor=0x47bC…, platformFeeRate=100, V1 impl 0x8B13d761C3cEc021766Ed8B07ce52e5094b4831C",
+      "rpcEnv": "BASE_RPC_URL",
+      "defaultRpc": "https://mainnet.base.org",
+      "pkEnv": "BASE_DEPLOYER_PRIVATE_KEY",
+      "tokens": [
+        { "symbol": "WETH", "token": "0x4200000000000000000000000000000000000006", "enabled": true, "perTxCapWei": "206800000000000000", "dailyCapWei": "1034300000000000000", "note": "18dp; ETH avg $2,416.92" },
+        { "symbol": "DAI", "token": "0x50c5725949A6f0C72e6C4a641F24049b1AE50DB8", "enabled": true, "perTxCapWei": "500000000000000000000", "dailyCapWei": "2500000000000000000000", "note": "18dp stablecoin" }
+      ]
+    },
+    "polygon": {
+      "name": "Polygon PoS",
+      "chainId": 137,
+      "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+      "timelock": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "proposer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "executor": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "registry": null,
+      "implementation": null,
+      "verified": true,
+      "technicallyVerified": "2026-11-17 read-only probe: owner==timelock, minDelay=259200, proposer/executor=0x399B…, platformFeeRate=100, V1 impl 0xB7D1a245336e92912d554712901B49EafC112448",
+      "rpcEnv": "POLYGON_RPC_URL",
+      "defaultRpc": "https://polygon-bor-rpc.publicnode.com",
+      "pkEnv": "POLYGON_DEPLOYER_PRIVATE_KEY",
+      "tokens": [
+        { "symbol": "WETH", "token": "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", "enabled": true, "perTxCapWei": "206800000000000000", "dailyCapWei": "1034300000000000000", "note": "18dp; ETH avg $2,416.92" },
+        { "symbol": "DAI", "token": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", "enabled": true, "perTxCapWei": "500000000000000000000", "dailyCapWei": "2500000000000000000000", "note": "18dp stablecoin" }
+      ]
+    },
+    "ethereum": {
+      "name": "Ethereum",
+      "chainId": 1,
+      "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+      "timelock": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "proposer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "executor": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "registry": null,
+      "implementation": null,
+      "verified": true,
+      "technicallyVerified": "2026-11-17 read-only probe: owner==timelock, minDelay=259200, proposer/executor=0x399B…, platformFeeRate=100, V1 impl 0xB7D1a245336e92912d554712901B49EafC112448 (same deterministic address as Polygon/Avalanche)",
+      "rpcEnv": "ETHEREUM_RPC_URL",
+      "defaultRpc": "https://eth.drpc.org",
+      "pkEnv": "ETHEREUM_DEPLOYER_PRIVATE_KEY",
+      "tokens": [
+        { "symbol": "WETH", "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "enabled": true, "perTxCapWei": "206800000000000000", "dailyCapWei": "1034300000000000000", "note": "18dp; ETH avg $2,416.92" },
+        { "symbol": "DAI", "token": "0x6B175474E89094C44Da98b954EedeAC495271d0F", "enabled": true, "perTxCapWei": "500000000000000000000", "dailyCapWei": "2500000000000000000000", "note": "18dp stablecoin" }
+      ]
+    },
+    "arbitrum": {
+      "name": "Arbitrum One",
+      "chainId": 42161,
+      "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+      "timelock": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "proposer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "executor": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "registry": null,
+      "implementation": null,
+      "verified": true,
+      "technicallyVerified": "2026-11-17 read-only probe: owner==timelock, minDelay=259200, proposer/executor=0x399B…, platformFeeRate=100, V1 impl 0xB7D1a245336e92912d554712901B49EafC112448 (same deterministic address)",
+      "rpcEnv": "ARBITRUM_RPC_URL",
+      "defaultRpc": "https://arb1.arbitrum.io/rpc",
+      "pkEnv": "ARBITRUM_DEPLOYER_PRIVATE_KEY",
+      "tokens": [
+        { "symbol": "WETH", "token": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", "enabled": true, "perTxCapWei": "206800000000000000", "dailyCapWei": "1034300000000000000", "note": "18dp; ETH avg $2,416.92" },
+        { "symbol": "DAI", "token": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", "enabled": true, "perTxCapWei": "500000000000000000000", "dailyCapWei": "2500000000000000000000", "note": "18dp stablecoin" },
+        { "symbol": "ARB", "token": "0x912CE59144191C1204E64559FE8253a0e49E6548", "enabled": true, "perTxCapWei": "3048780400000000000000", "dailyCapWei": "15243902400000000000000", "note": "18dp; ARB avg $0.164" }
+      ]
+    },
+    "avalanche": {
+      "name": "Avalanche C-Chain",
+      "chainId": 43114,
+      "proxy": "0x4B72749185Af4d49bd239b8Eb5D507Ee235de926",
+      "timelock": "0xCF213aDFa7e67b80c3Be4e7FEb57038531A5011e",
+      "proposer": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "executor": "0x399B5C9f102eA825f6960BF9Ec2d0A679B9e8266",
+      "registry": null,
+      "implementation": null,
+      "verified": true,
+      "technicallyVerified": "2026-11-17 read-only probe: owner==timelock, minDelay=259200, proposer/executor=0x399B…, platformFeeRate=100, V1 impl 0xB7D1a245336e92912d554712901B49EafC112448 (same deterministic address)",
+      "rpcEnv": "AVALANCHE_RPC_URL",
+      "defaultRpc": "https://api.avax.network/ext/bc/C/rpc",
+      "pkEnv": "AVALANCHE_DEPLOYER_PRIVATE_KEY",
+      "tokens": [
+        { "symbol": "WAVAX", "token": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", "enabled": true, "perTxCapWei": "56382400000000000000", "dailyCapWei": "281912400000000000000", "note": "18dp; AVAX avg $8.868" },
+        { "symbol": "DAI.e", "token": "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70", "enabled": true, "perTxCapWei": "500000000000000000000", "dailyCapWei": "2500000000000000000000", "note": "18dp bridged stablecoin" }
+      ]
+    }
+  }
+}

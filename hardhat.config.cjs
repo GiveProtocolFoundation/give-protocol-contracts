@@ -18,7 +18,13 @@ const config = {
   networks: {
     // ========== LOCAL ==========
     hardhat: {
-      chainId: 31337,
+      // Optional mainnet forking for rehearsal scripts (no real keys used).
+      // When HARDHAT_FORK_URL is set, the local chainId is omitted so Hardhat
+      // adopts the forked chain's id/hardfork history:
+      //   HARDHAT_FORK_URL=https://eth.drpc.org npx hardhat run scripts/rehearse-upgrade-fork.cjs
+      ...(process.env.HARDHAT_FORK_URL
+        ? { forking: { url: process.env.HARDHAT_FORK_URL } }
+        : { chainId: 31337 }),
       mining: {
         auto: true,
         interval: 5000
