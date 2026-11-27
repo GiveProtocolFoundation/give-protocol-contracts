@@ -18,12 +18,10 @@
       "executedBlock": 62349926
     },
     "migrate-charities": {
-      "opId": "0x553ca4ded8d2ae9adbef38e8e1e10505ff8b2be582787ec100374fabe037322c",
-      "txHash": "0x9888d9169a33a73fa449aa8967471698dc8907445604325bea34bd8b26007ad8",
-      "eta": "2026-11-25T22:10:02.000Z",
-      "blockNumber": 60975134,
-      "cancelledTxHash": "0x667d01a7466fa89a8ef7c2a138aa52e161b1a8e2e0c2d69acb49eb0b48cc4ba4",
-      "cancelledBlock": 61873959
+      "opId": "0x6a121ef6901cb8aee0ebc2fafa24b99f5d13298875dba5c5577b57cdab318bbc",
+      "txHash": "0x365555d4c39dd2f36dd73dd7cda47162a213bf3cf67859269bec620088f02d23",
+      "eta": "2026-11-30T19:46:24.000Z",
+      "blockNumber": 63092044
     }
   },
   "implementation": "0xFf6D38f7034803A5daBDea876d2C95359b10CBE7",
@@ -31,6 +29,6 @@
   "deployedAt": "2026-11-22T22:09:26.843Z",
   "registry": "0xdBFEfE8A8a0e2118093f4ea9296E05C5C2623C84",
   "registryDeployedAt": "2026-11-22T22:09:37.342Z",
-  "scheduledAt": "2026-11-22T22:09:52.694Z",
+  "scheduledAt": "2026-11-27T19:46:23.551Z",
   "cancelledAt": "2026-11-25T00:06:11.328Z"
 }
