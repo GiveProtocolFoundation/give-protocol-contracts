@@ -15,7 +15,7 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
 
   const FEE_RATE = 50n; // 0.5% in basis points (MVP-DON-02)
   const BASIS_POINTS = 10000n;
-  const MINIMUM_DONATION = ethers.parseEther("0.001");
+  const STAGE1_MIN_DONATION = ethers.parseEther("0.001"); // gross (pre-fee), 18dp mock token
   const STAGE1_PER_TX_CAP = ethers.parseEther("500.0");
   const STAGE1_DAILY_CAP = ethers.parseEther("2500.0");
   const SAMPLE_CAUSE_ID = ethers.id("clean-water-initiative-2026");
@@ -52,6 +52,7 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
           dailyCap: STAGE1_DAILY_CAP,
           dailyWindowStart: 0n,
           dailyVolume: 0n,
+          minDonation: STAGE1_MIN_DONATION,
         },
         {
           enabled: true,
@@ -59,6 +60,7 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
           dailyCap: STAGE1_DAILY_CAP,
           dailyWindowStart: 0n,
           dailyVolume: 0n,
+          minDonation: STAGE1_MIN_DONATION,
         },
       ],
     );
@@ -79,8 +81,9 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
       expect(await donation.DEFAULT_FEE_RATE()).to.equal(50n);
     });
 
-    it("Should expose MINIMUM_DONATION as 0.001 token units", async () => {
-      expect(await donation.MINIMUM_DONATION()).to.equal(MINIMUM_DONATION);
+    it("Should expose the per-token gross minimum via tokenConfigs", async () => {
+      const cfg = await donation.tokenConfigs(await token.getAddress());
+      expect(cfg.minDonation).to.equal(STAGE1_MIN_DONATION);
     });
 
     it("Should set the correct treasury, owner, and standalone CharityRegistry", async () => {
@@ -352,6 +355,7 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
             dailyCap: STAGE1_DAILY_CAP,
             dailyWindowStart: 0n,
             dailyVolume: 0n,
+            minDonation: STAGE1_MIN_DONATION,
           },
         ],
       );
@@ -480,6 +484,7 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
             dailyCap: 0n,
             dailyWindowStart: 0n,
             dailyVolume: 0n,
+            minDonation: 0n,
           },
         ],
       );
@@ -501,15 +506,92 @@ describe("DonationV3 (Non-Upgradeable V2 Donation Contract)", () => {
       const tokenAddr = await token.getAddress();
 
       await expect(
-        donation.connect(nonOwner).setTokenConfig(tokenAddr, true, STAGE1_PER_TX_CAP, STAGE1_DAILY_CAP),
+        donation.connect(nonOwner).setTokenConfig(tokenAddr, true, STAGE1_PER_TX_CAP, STAGE1_DAILY_CAP, STAGE1_MIN_DONATION),
       ).to.be.revertedWithCustomError(donation, "OwnableUnauthorizedAccount");
 
       await expect(
-        donation.setTokenConfig(tokenAddr, true, 0n, STAGE1_DAILY_CAP),
+        donation.setTokenConfig(tokenAddr, true, 0n, STAGE1_DAILY_CAP, STAGE1_MIN_DONATION),
       ).to.be.revertedWithCustomError(donation, "InvalidAmount");
 
       await expect(
-        donation.setTokenConfig(tokenAddr, true, STAGE1_DAILY_CAP, STAGE1_PER_TX_CAP),
+        donation.setTokenConfig(tokenAddr, true, STAGE1_DAILY_CAP, STAGE1_PER_TX_CAP, STAGE1_MIN_DONATION),
+      ).to.be.revertedWithCustomError(donation, "InvalidAmount");
+    });
+
+    it("Should enforce the per-token gross minimum (pre-fee) on ERC20 donations", async () => {
+      const tokenAddr = await token.getAddress();
+      await donation.setTokenConfig(tokenAddr, true, STAGE1_PER_TX_CAP, STAGE1_DAILY_CAP, STAGE1_MIN_DONATION);
+
+      // Exactly at the minimum succeeds — the check runs on the GROSS amount
+      // before the platform fee is derived.
+      await expect(
+        donation.connect(donor)[
+          "processDonation(address,address,uint256,uint256,bytes32)"
+        ](
+          charity.address,
+          tokenAddr,
+          STAGE1_MIN_DONATION,
+          0n,
+          SAMPLE_CAUSE_ID,
+        ),
+      ).to.emit(donation, "DonationProcessed");
+
+      // One unit below the minimum reverts.
+      await expect(
+        donation.connect(donor)[
+          "processDonation(address,address,uint256,uint256,bytes32)"
+        ](
+          charity.address,
+          tokenAddr,
+          STAGE1_MIN_DONATION - 1n,
+          0n,
+          SAMPLE_CAUSE_ID,
+        ),
+      ).to.be.revertedWithCustomError(donation, "InvalidAmount");
+    });
+
+    it("Should reject enabling a token with a zero minimum", async () => {
+      await expect(
+        donation.setTokenConfig(await token.getAddress(), true, STAGE1_PER_TX_CAP, STAGE1_DAILY_CAP, 0n),
+      ).to.be.revertedWithCustomError(donation, "InvalidAmount");
+    });
+
+    it("Should settle a 6-decimal-magnitude donation ($100 == 100e6) with 6-dp caps/minimum", async () => {
+      const tokenAddr = await token.getAddress();
+      const SIX_DP_MIN = 1_000_000n;           // $1
+      const SIX_DP_TX_CAP = 500_000_000n;      // $500
+      const SIX_DP_DAILY_CAP = 2_500_000_000n; // $2,500
+      await donation.setTokenConfig(tokenAddr, true, SIX_DP_TX_CAP, SIX_DP_DAILY_CAP, SIX_DP_MIN);
+
+      const gross = 100_000_000n; // $100
+      const expectedFee = (gross * FEE_RATE) / BASIS_POINTS; // 500_000 ($0.50)
+      const expectedNet = gross - expectedFee; // 99_500_000 ($99.50)
+
+      await expect(
+        donation.connect(donor)[
+          "processDonation(address,address,uint256,uint256,bytes32)"
+        ](
+          charity.address,
+          tokenAddr,
+          gross,
+          0n,
+          SAMPLE_CAUSE_ID,
+        ),
+      ).to.emit(donation, "DonationProcessed");
+
+      expect(await donation.totalReceived(charity.address)).to.equal(expectedNet);
+
+      // One unit below $1 reverts.
+      await expect(
+        donation.connect(donor)[
+          "processDonation(address,address,uint256,uint256,bytes32)"
+        ](
+          charity.address,
+          tokenAddr,
+          SIX_DP_MIN - 1n,
+          0n,
+          SAMPLE_CAUSE_ID,
+        ),
       ).to.be.revertedWithCustomError(donation, "InvalidAmount");
     });
   });
