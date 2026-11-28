@@ -83,7 +83,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Slither SARIF results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: steps.slither.outputs.sarif_exists == 'true'
         with:
           sarif_file: slither-results.sarif
@@ -96,14 +96,6 @@ jobs:
           name: slither-results
           path: slither-results.sarif
           retention-days: 30
-
-      - name: Upload SARIF to DeepSource
-        if: steps.slither.outputs.sarif_exists == 'true' && env.DEEPSOURCE_DSN != ''
-        run: |
-          curl -sSL https://deepsource.io/cli | sh
-          ./bin/deepsource report --analyzer slither --analyzer-type community --value-file slither-results.sarif
-        env:
-          DEEPSOURCE_DSN: ${{ secrets.DEEPSOURCE_DSN }}
 
       - name: Generate JSON report
         if: always()
