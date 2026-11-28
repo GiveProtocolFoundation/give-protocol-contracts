@@ -24,6 +24,10 @@ import "./CharityRegistry.sol";
  *   Enforces per-transaction principal cap (`perTxCap > 0`) and rolling-24h cumulative
  *   principal cap (`dailyCap >= perTxCap`, `CAP_WINDOW = 24 hours`) on `charityAmount`
  *   before any transfer (Stage-1 reference: $500/tx, $2,500/24h).
+ * - Per-Token Minimum (MVP-SEC-02): Enforces a per-token minimum donation
+ *   (`minDonation > 0`) on the GROSS (pre-fee) `charityAmount` before any transfer.
+ *   `minDonation` is stored in token units, matching the per-token caps; 6-decimal
+ *   stablecoins (USDC/USDT) therefore use 6-decimal units (e.g. `1e6` == $1).
  * - Platform Fee (MVP-DON-02): Hard-set to 50 bps (0.5%) at deployment with an on-chain
  *   post-init `require` invariant check; bounded by `MAX_FEE_RATE = 500` (5%).
  * - Cause / Program Identifier (MVP-DON-04): `bytes32 causeId` threaded through donation
@@ -50,11 +54,11 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         uint256 dailyCap;                // Token units, rolling 24h (per token per chain)
         uint256 dailyWindowStart;        // Start timestamp of the current 24h bucket
         uint256 dailyVolume;             // Accumulated principal within the current window
+        uint256 minDonation;             // Gross (pre-fee) minimum donation, token units
     }
 
     // Constants
     uint256 public constant BASIS_POINTS = 10000;
-    uint256 public constant MINIMUM_DONATION = 1e15; // 0.001 tokens minimum
     uint256 public constant DEFAULT_FEE_RATE = 50;   // 0.5% (50 bps) per MVP-DON-02
     uint256 public constant MAX_FEE_RATE = 500;      // Cap at 5%
     uint256 public constant CAP_WINDOW = 24 hours;
@@ -71,7 +75,7 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
     // Mandatory platform fee (in basis points, initialized to 50 = 0.5%)
     uint256 public platformFeeRate;
 
-    // Per-token caps / allowlist (deny-by-default). Native token uses address(0).
+    // Per-token caps / allowlist / minimum (deny-by-default). Native token uses address(0).
     mapping(address => TokenConfig) public tokenConfigs;
 
     // Donation accounting: total net amount received by each charity on this chain.
@@ -95,7 +99,13 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
     event TaxReceiptGenerated(bytes32 indexed receiptId, address indexed donor);
     event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
     event PlatformFeeRateUpdated(uint256 oldRate, uint256 newRate);
-    event TokenConfigUpdated(address indexed token, bool enabled, uint256 perTxCap, uint256 dailyCap);
+    event TokenConfigUpdated(
+        address indexed token,
+        bool enabled,
+        uint256 perTxCap,
+        uint256 dailyCap,
+        uint256 minDonation
+    );
     event CharityRegistryWired(address indexed charityRegistry);
 
     // Errors
@@ -151,7 +161,8 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
                 initialTokens[i],
                 initialConfigs[i].enabled,
                 initialConfigs[i].perTxCap,
-                initialConfigs[i].dailyCap
+                initialConfigs[i].dailyCap,
+                initialConfigs[i].minDonation
             );
         }
     }
@@ -193,7 +204,7 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @dev Configure (or disable) a token's allowlist + caps. onlyOwner (timelock).
+     * @dev Configure (or disable) a token's allowlist + caps + minimum. onlyOwner (timelock).
      * Use address(0) as `token` for the native asset.
      * Setting enabled=false removes the token from the allowlist.
      */
@@ -201,13 +212,14 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         address token,
         bool enabled,
         uint256 perTxCap,
-        uint256 dailyCap
+        uint256 dailyCap,
+        uint256 minDonation
     ) external onlyOwner {
-        _setTokenConfig(token, enabled, perTxCap, dailyCap);
+        _setTokenConfig(token, enabled, perTxCap, dailyCap, minDonation);
     }
 
     /**
-     * @dev Batch configure token allowlist + caps. onlyOwner (timelock).
+     * @dev Batch configure token allowlist + caps + minimum. onlyOwner (timelock).
      */
     function setTokenConfigs(
         address[] calldata tokens,
@@ -217,7 +229,7 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
             revert InvalidAmount(tokens.length, "Token/config length mismatch");
         }
         for (uint256 i = 0; i < tokens.length; i++) {
-            _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap);
+            _setTokenConfig(tokens[i], configs[i].enabled, configs[i].perTxCap, configs[i].dailyCap, configs[i].minDonation);
         }
     }
 
@@ -225,7 +237,8 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         address token,
         bool enabled,
         uint256 perTxCap,
-        uint256 dailyCap
+        uint256 dailyCap,
+        uint256 minDonation
     ) internal {
         if (enabled) {
             if (perTxCap == 0) {
@@ -234,25 +247,38 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
             if (dailyCap < perTxCap) {
                 revert InvalidAmount(dailyCap, "Daily cap must be >= per-tx cap");
             }
+            if (minDonation == 0) {
+                revert InvalidAmount(minDonation, "Minimum donation must be > 0");
+            }
         }
         tokenConfigs[token] = TokenConfig({
             enabled: enabled,
             perTxCap: perTxCap,
             dailyCap: dailyCap,
             dailyWindowStart: 0,
-            dailyVolume: 0
+            dailyVolume: 0,
+            minDonation: minDonation
         });
-        emit TokenConfigUpdated(token, enabled, perTxCap, dailyCap);
+        emit TokenConfigUpdated(token, enabled, perTxCap, dailyCap, minDonation);
     }
 
     /**
-     * @dev Enforce allowlist + per-tx + rolling-24h caps on the principal amount.
-     * Must run before any transfer (checks-effects-interactions).
+     * @dev Enforce allowlist + per-token gross minimum + per-tx + rolling-24h caps on the principal amount.
+     * Must run before any transfer (checks-effects-interactions). `amount` is the GROSS
+     * (pre-fee) principal; the mandatory fee is derived only after this check passes.
      */
     function _checkTokenCaps(address token, uint256 amount) internal {
         TokenConfig storage cfg = tokenConfigs[token];
         if (!cfg.enabled) {
             revert TokenNotAllowed(token);
+        }
+        // Defense-in-depth: an unmigrated/unconfigured token must never operate
+        // with an implicit zero minimum.
+        if (cfg.minDonation == 0) {
+            revert InvalidAmount(0, "Token minimum not configured");
+        }
+        if (amount < cfg.minDonation) {
+            revert InvalidAmount(amount, "Donation amount too small");
         }
         if (amount > cfg.perTxCap) {
             revert ExceedsPerTxCap(token, amount, cfg.perTxCap);
@@ -310,10 +336,6 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
         bytes32 causeId
     ) internal {
         _requireActiveCharity(charity);
-
-        if (charityAmount < MINIMUM_DONATION) {
-            revert InvalidAmount(charityAmount, "Donation amount too small");
-        }
 
         _checkTokenCaps(token, charityAmount);
 
@@ -473,10 +495,6 @@ contract DonationV3 is Ownable, ReentrancyGuard, Pausable {
 
         // Gross charity amount is msg.value minus optional tip
         uint256 charityAmount = msg.value - platformTip;
-
-        if (charityAmount < MINIMUM_DONATION) {
-            revert InvalidAmount(charityAmount, "Donation amount too small");
-        }
 
         _checkTokenCaps(address(0), charityAmount);
 
